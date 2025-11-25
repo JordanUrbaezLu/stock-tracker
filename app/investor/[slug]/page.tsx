@@ -97,10 +97,11 @@ function Sparkline({ points }: { points: HistoryPoint[] }) {
 
 async function fetchPortfolio(): Promise<PortfolioResponse> {
   const base =
-    process.env.NEXT_PUBLIC_VERCEL_URL &&
-    process.env.NEXT_PUBLIC_VERCEL_URL.length > 0
-      ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
-      : "http://localhost:3000";
+    process.env.VERCEL_URL && process.env.VERCEL_URL.length > 0
+      ? `https://${process.env.VERCEL_URL}`
+      : process.env.NEXT_PUBLIC_SITE_URL && process.env.NEXT_PUBLIC_SITE_URL.length > 0
+        ? process.env.NEXT_PUBLIC_SITE_URL
+        : "http://localhost:3000";
 
   const res = await fetch(`${base}/api/portfolio`, {
     next: { revalidate: 0 },
