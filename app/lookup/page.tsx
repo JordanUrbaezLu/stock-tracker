@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 
 type Quote = {
@@ -120,6 +121,14 @@ export default function LookupPage() {
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-black text-slate-100">
       <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-8 px-5 py-12 sm:px-8">
         <header className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Link
+              href="/"
+              className="text-xs font-semibold text-cyan-200 underline-offset-4 hover:underline"
+            >
+              ← Back to summary
+            </Link>
+          </div>
           <p className="text-sm uppercase tracking-[0.3em] text-cyan-300">
             Ticker lookup
           </p>
@@ -131,10 +140,10 @@ export default function LookupPage() {
           </p>
         </header>
 
-        <section className="rounded-2xl border border-cyan-500/20 bg-slate-900/70 p-6 shadow-lg shadow-cyan-500/20">
+        <section className="rounded-2xl border border-cyan-500/20 bg-slate-900/70 p-4 sm:p-6 shadow-lg shadow-cyan-500/20">
           <form
             onSubmit={handleSubmit}
-            className="flex flex-col gap-3 sm:flex-row"
+            className="flex flex-col gap-2 sm:flex-row sm:gap-3"
           >
             <label className="sr-only" htmlFor="ticker">
               Ticker symbol
@@ -145,12 +154,12 @@ export default function LookupPage() {
               value={ticker}
               onChange={(e) => setTicker(e.target.value)}
               placeholder="AAPL"
-              className="h-12 flex-1 rounded-xl border border-slate-800 bg-slate-950 px-4 text-lg uppercase tracking-wide text-slate-100 outline-none ring-2 ring-transparent transition focus:border-cyan-500 focus:ring-cyan-900"
+              className="h-12 flex-1 rounded-xl border border-slate-800 bg-slate-950 p-3 text-lg uppercase tracking-wide text-slate-100 outline-none ring-2 ring-transparent transition focus:border-cyan-500 focus:ring-cyan-900"
             />
             <button
               type="submit"
               disabled={loading}
-              className="h-12 rounded-xl bg-cyan-500 px-6 text-base font-semibold text-cyan-950 transition hover:bg-cyan-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 disabled:cursor-not-allowed disabled:bg-cyan-700/60 cursor-pointer"
+              className="h-12 rounded-xl bg-cyan-500 px-4 sm:px-6 text-base font-semibold text-cyan-950 transition hover:bg-cyan-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 disabled:cursor-not-allowed disabled:bg-cyan-700/60 cursor-pointer"
             >
               {loading ? "Fetching..." : "Get price"}
             </button>

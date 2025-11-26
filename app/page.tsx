@@ -152,7 +152,11 @@ export default function Home() {
   const asOfDate = useMemo(() => {
     if (!data) return "";
     const date = new Date(data.asOf);
-    return date.toLocaleString();
+    return date.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
   }, [data]);
 
   const investors = data?.investors ?? [];
@@ -244,22 +248,43 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-linear-to-br from-slate-950 via-indigo-950 to-black text-slate-100">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-black text-slate-100">
       <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-8 px-5 py-10 sm:px-8">
-
+        <header className="space-y-3 rounded-3xl border border-cyan-500/20 bg-slate-900/70 p-5 shadow-lg shadow-cyan-500/20">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="inline-flex items-center gap-3 rounded-full bg-linear-to-r from-cyan-500 via-fuchsia-500 to-indigo-500 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-slate-900">
+            <div className="inline-flex items-center gap-3 rounded-full bg-gradient-to-r from-cyan-500 via-fuchsia-500 to-indigo-500 px-4 py-2 text-xs font-semibold uppercase tracking-[0.25em] text-slate-900">
               <span role="img" aria-hidden>
                 ✨
               </span>
               Investments Summary
             </div>
-            {asOfDate && (
-              <span className="rounded-full border border-slate-800 bg-slate-950/50 px-3 py-1 text-xs text-slate-300">
-                Prices as of {asOfDate}
-              </span>
-            )}
+            <div className="flex items-center gap-2 text-xs text-slate-300">
+              <Link
+                href="/lookup"
+                className="inline-flex items-center gap-1.5 rounded-full border border-cyan-500/30 bg-slate-950/60 px-3 py-1 transition hover:-translate-y-0.5 hover:border-cyan-300 hover:text-cyan-100"
+              >
+                Lookup
+                <span className="text-white" aria-hidden>
+                  🔍
+                </span>
+              </Link>
+              <Link
+                href="/admin"
+                className="inline-flex items-center gap-1.5 rounded-full border border-fuchsia-500/30 bg-slate-950/60 px-3 py-1 transition hover:-translate-y-0.5 hover:border-fuchsia-300 hover:text-fuchsia-100"
+              >
+                Admin
+                <span className="text-white" aria-hidden>
+                  👤
+                </span>
+              </Link>
+              {asOfDate && (
+                <span className="rounded-full border border-slate-800 bg-slate-950/50 px-3 py-1 text-xs text-slate-300">
+                  Updated {asOfDate}
+                </span>
+              )}
+            </div>
           </div>
+        </header>
 
 
         <section className="relative">
@@ -282,13 +307,18 @@ export default function Home() {
                     className="flex transition-transform duration-500 ease-out"
                     style={{ transform: translateX }}
                   >
-                    {investors.map((investor) => (
+                    {investors.map((investor, idx) => (
                       <div
                         key={investor.slug}
                         className="shrink-0 px-1 sm:px-2"
                         style={{ width: cardWidth }}
                       >
-                        <Card investor={investor} />
+                        <div
+                          className="animate-fade-in-up"
+                          style={{ animationDelay: `${idx * 80}ms` }}
+                        >
+                          <Card investor={investor} />
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -298,7 +328,7 @@ export default function Home() {
                       <button
                         type="button"
                         onClick={handlePrev}
-                        className="h-10 w-10 rounded-full border border-cyan-500/40 bg-slate-900 text-cyan-200 transition hover:border-cyan-400 hover:bg-slate-800 focus-visible:outline focus-visible:outline-offset-2 focus-visible:outline-cyan-400"
+                        className="h-10 w-10 rounded-full border border-cyan-500/40 bg-slate-900 text-cyan-200 transition transform hover:-translate-y-0.5 hover:border-cyan-400 hover:bg-slate-800 hover:text-white focus-visible:outline focus-visible:outline-offset-2 focus-visible:outline-cyan-400"
                         aria-label="Previous investor"
                       >
                         ◀
@@ -318,7 +348,7 @@ export default function Home() {
                       <button
                         type="button"
                         onClick={handleNext}
-                        className="h-10 w-10 rounded-full border border-cyan-500/40 bg-slate-900 text-cyan-200 transition hover:border-cyan-400 hover:bg-slate-800 focus-visible:outline focus-visible:outline-offset-2 focus-visible:outline-cyan-400"
+                        className="h-10 w-10 rounded-full border border-cyan-500/40 bg-slate-900 text-cyan-200 transition transform hover:-translate-y-0.5 hover:border-cyan-400 hover:bg-slate-800 hover:text-white focus-visible:outline focus-visible:outline-offset-2 focus-visible:outline-cyan-400"
                         aria-label="Next investor"
                       >
                         ▶
@@ -328,8 +358,14 @@ export default function Home() {
                 </div>
               ) : (
                 <div className="flex flex-col gap-4">
-                  {investors.map((investor) => (
-                    <Card key={investor.slug} investor={investor} />
+                  {investors.map((investor, idx) => (
+                    <div
+                      key={investor.slug}
+                      className="animate-fade-in-up"
+                      style={{ animationDelay: `${idx * 80}ms` }}
+                    >
+                      <Card investor={investor} />
+                    </div>
                   ))}
                 </div>
               )}
