@@ -60,6 +60,12 @@
           "invested": 25,
           "shares": 0.2874,
           "dateInvested": "2025-01-14T00:00:00Z"
+        },
+        {
+          "symbol": "WMT",
+          "invested": 70,
+          "shares": 0.7821,
+          "dateInvested": "2025-01-14T00:00:00Z"
         }
       ]
     }
