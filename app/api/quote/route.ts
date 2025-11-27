@@ -45,8 +45,8 @@ export async function GET(request: NextRequest) {
   }
 
   const quoteUrl = `${QUOTE_URL}?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`;
-  console.log(quoteUrl)
   const profileUrl = `${PROFILE_URL}?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`;
+  console.log("[quote] GET", { symbol });
 
   try {
     const [quoteResponse, profileResponse] = await Promise.all([
@@ -67,6 +67,10 @@ export async function GET(request: NextRequest) {
     if (profileResponse.ok) {
       try {
         profile = (await profileResponse.json()) as FinnhubProfile;
+        console.log("[quote] profile", {
+          symbol: symbol.toUpperCase(),
+          name: profile?.name ?? null,
+        });
       } catch (error) {
         console.error("Failed to parse profile response", error);
       }

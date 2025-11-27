@@ -7,14 +7,22 @@ type Holding = {
   name?: string | null;
   amountInvested: number;
   currentValue: number | null;
+  startPrice: number | null;
+  currentPrice: number | null;
   change: number | null;
   changePercent: number | null;
   shares: number | null;
   dateInvested?: string | null;
+  history: { time: number; value: number }[];
+  allocationIndex?: number;
+  id?: string;
 };
 
 type Props = {
   holdings: Holding[];
+  isAdmin?: boolean;
+  onEdit?: (holding: Holding) => void;
+  onDelete?: (holding: Holding) => void;
 };
 
 function formatCurrency(value: number | null | undefined) {
@@ -41,7 +49,7 @@ function changeArrow(change: number | null) {
   return change > 0 ? "▲" : "▼";
 }
 
-export function HoldingsList({ holdings }: Props) {
+export function HoldingsList({ holdings, isAdmin = false, onEdit, onDelete }: Props) {
   const [filter, setFilter] = useState("");
 
   const maxValue = useMemo(() => {
@@ -155,6 +163,24 @@ export function HoldingsList({ holdings }: Props) {
                 <p>{formatCurrency(holding.currentValue)}</p>
               </div>
             </div>
+            {isAdmin && (
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => onEdit?.(holding)}
+                  className="flex-1 cursor-pointer rounded-lg border border-cyan-500/30 px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:border-cyan-300 hover:text-white"
+                >
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDelete?.(holding)}
+                  className="flex-1 cursor-pointer rounded-lg border border-rose-500/30 px-3 py-2 text-xs font-semibold text-rose-200 transition hover:border-rose-400 hover:text-white"
+                >
+                  Delete
+                </button>
+              </div>
+            )}
           </div>
         );
       })}
