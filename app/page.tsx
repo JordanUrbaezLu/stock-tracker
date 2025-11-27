@@ -1,7 +1,9 @@
 "use client";
 
+import type { ReactNode } from "react";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useAdmin } from "./AdminContext";
 
 type HistoryPoint = { time: number; value: number };
 
@@ -16,6 +18,8 @@ type HoldingValue = {
   change: number | null;
   changePercent: number | null;
   history: HistoryPoint[];
+  allocationIndex?: number;
+  id?: string;
 };
 
 type InvestorValue = {
@@ -34,6 +38,37 @@ type PortfolioResponse = {
   investors: InvestorValue[];
   symbols: string[];
 };
+
+function Modal({
+  open,
+  title,
+  children,
+  onClose,
+}: {
+  open: boolean;
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+      <div className="w-full max-w-md rounded-2xl border border-cyan-500/30 bg-slate-950 p-5 shadow-xl shadow-cyan-500/20">
+        <div className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-white">{title}</h3>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full px-3 py-1 text-sm text-slate-300 transition hover:bg-slate-800"
+          >
+            ✕
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
 
 function formatCurrency(value: number | null | undefined) {
   if (value == null || Number.isNaN(value)) return "—";
@@ -78,8 +113,10 @@ function mergeHoldings(holdings: HoldingValue[]): HoldingValue[] {
     }
 
     const existing = bySymbol.get(key)!;
-    const totalInvested = (existing.amountInvested ?? 0) + (holding.amountInvested ?? 0);
-    const totalCurrent = (existing.currentValue ?? existing.amountInvested ?? 0) + current;
+    const totalInvested =
+      (existing.amountInvested ?? 0) + (holding.amountInvested ?? 0);
+    const totalCurrent =
+      (existing.currentValue ?? existing.amountInvested ?? 0) + current;
     const totalShares = (existing.shares ?? 0) + shares || 0;
     const mergedShares = totalShares > 0 ? totalShares : null;
 
@@ -87,7 +124,9 @@ function mergeHoldings(holdings: HoldingValue[]): HoldingValue[] {
     existing.currentValue = totalCurrent;
     existing.shares = mergedShares;
     existing.change = totalCurrent - totalInvested;
-    existing.changePercent = totalInvested ? (existing.change / totalInvested) * 100 : null;
+    existing.changePercent = totalInvested
+      ? (existing.change / totalInvested) * 100
+      : null;
   });
 
   return Array.from(bySymbol.values()).map((h) => {
@@ -97,9 +136,10 @@ function mergeHoldings(holdings: HoldingValue[]): HoldingValue[] {
       return {
         ...h,
         change,
-        changePercent: (h.amountInvested ?? 0)
-          ? (change / (h.amountInvested ?? 1)) * 100
-          : null,
+        changePercent:
+          h.amountInvested ?? 0
+            ? (change / (h.amountInvested ?? 1)) * 100
+            : null,
       };
     }
     return h;
@@ -112,29 +152,70 @@ export default function Home() {
   const [loading, setLoading] = useState(true);
   const [activeIndex, setActiveIndex] = useState(0);
   const [slidesPerView, setSlidesPerView] = useState(1);
+  const { isAdmin } = useAdmin();
+  const [showAddInvestor, setShowAddInvestor] = useState(false);
+  const [newInvestorName, setNewInvestorName] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+
+  const loadPortfolios = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/portfolio", { cache: "no-store" });
+      const json = (await res.json()) as PortfolioResponse & {
+        error?: string;
+      };
+
+      if (!res.ok) {
+        throw new Error(json?.error || "Could not load portfolios.");
+      }
+
+      setData(json);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Something went wrong.";
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    async function load() {
-      try {
-        const res = await fetch("/api/portfolio");
-        const json = (await res.json()) as PortfolioResponse & { error?: string };
+    loadPortfolios().catch(() => null);
+  }, [loadPortfolios]);
 
-        if (!res.ok) {
-          throw new Error(json?.error || "Could not load portfolios.");
-        }
-
-        setData(json);
-      } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Something went wrong.";
-        setError(message);
-      } finally {
-        setLoading(false);
-      }
+  const handleCreateInvestor = useCallback(async () => {
+    if (!isAdmin) {
+      setCreateError("Admin access required.");
+      return;
     }
-
-    load();
-  }, []);
+    setCreating(true);
+    setCreateError(null);
+    try {
+      if (!newInvestorName.trim()) {
+        throw new Error("Name is required.");
+      }
+      const res = await fetch("/api/admin/investors", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newInvestorName.trim() }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json?.error || "Unable to create investor.");
+      }
+      setShowAddInvestor(false);
+      setNewInvestorName("");
+      await loadPortfolios();
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Unable to create investor.";
+      setCreateError(message);
+    } finally {
+      setCreating(false);
+    }
+  }, [newInvestorName, loadPortfolios, isAdmin]);
 
   useEffect(() => {
     const updateSlides = () => {
@@ -161,7 +242,9 @@ export default function Home() {
 
   const investors = data?.investors ?? [];
   const translateX =
-    slidesPerView === 1 ? `translateX(-${activeIndex * 100}%)` : "translateX(0%)";
+    slidesPerView === 1
+      ? `translateX(-${activeIndex * 100}%)`
+      : "translateX(0%)";
   const cardWidth = "100%";
   const showNav = slidesPerView === 1 && investors.length > 1;
 
@@ -177,6 +260,7 @@ export default function Home() {
 
   const Card = ({ investor }: { investor: InvestorValue }) => {
     const changeClass = badgeColor(investor.change);
+    const mergedHoldings = mergeHoldings(investor.holdings || []);
     return (
       <Link
         href={`/investor/${investor.slug}`}
@@ -210,7 +294,12 @@ export default function Home() {
               <span>Performance</span>
             </div>
             <div className="space-y-3">
-              {mergeHoldings(investor.holdings).map((holding, idx) => {
+              {mergedHoldings.length === 0 && (
+                <div className="rounded-xl border border-dashed border-slate-800 bg-slate-900/50 px-3 py-4 text-center text-xs text-slate-400">
+                  No investments yet. Tap to add the first one.
+                </div>
+              )}
+              {mergedHoldings.map((holding, idx) => {
                 const holdingChange = holding.change ?? 0;
                 const holdingChangeClass = badgeColor(holdingChange);
                 return (
@@ -227,8 +316,11 @@ export default function Home() {
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className={`text-sm font-semibold ${holdingChangeClass}`}>
-                        {changeArrow(holding.change)} {formatPercent(holding.changePercent)}
+                      <p
+                        className={`text-sm font-semibold ${holdingChangeClass}`}
+                      >
+                        {changeArrow(holding.change)}{" "}
+                        {formatPercent(holding.changePercent)}
                       </p>
                       <p className="text-xs text-slate-400">
                         {formatCurrency(holding.currentValue)}
@@ -258,25 +350,53 @@ export default function Home() {
               </span>
               Investments Summary
             </div>
-            <div className="flex items-center gap-2 text-xs text-slate-300">
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
               <Link
                 href="/lookup"
-                className="inline-flex items-center gap-1.5 rounded-full border border-cyan-500/30 bg-slate-950/60 px-3 py-1 transition hover:-translate-y-0.5 hover:border-cyan-300 hover:text-cyan-100"
+                className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-cyan-500/30 bg-slate-950/60 px-3 py-1 transition hover:-translate-y-0.5 hover:border-cyan-300 hover:text-cyan-100"
               >
                 Lookup
                 <span className="text-white" aria-hidden>
                   🔍
                 </span>
               </Link>
-              <Link
-                href="/admin"
-                className="inline-flex items-center gap-1.5 rounded-full border border-fuchsia-500/30 bg-slate-950/60 px-3 py-1 transition hover:-translate-y-0.5 hover:border-fuchsia-300 hover:text-fuchsia-100"
-              >
-                Admin
-                <span className="text-white" aria-hidden>
-                  👤
-                </span>
-              </Link>
+              <div className="flex items-center gap-2 rounded-full border border-slate-800 bg-slate-950/50 px-2 py-1">
+                {!isAdmin ? (
+                  <Link
+                    href="/admin"
+                    className="inline-flex cursor-pointer items-center gap-1 rounded-full px-3 py-1 transition hover:-translate-y-0.5 hover:text-fuchsia-100"
+                  >
+                    Admin
+                    <span className="text-white" aria-hidden>
+                      👤
+                    </span>
+                  </Link>
+                ) : (
+                  <>
+                    <Link
+                      href="/admin"
+                      className="inline-flex cursor-pointer items-center gap-1 rounded-full px-3 py-1 text-fuchsia-100 transition hover:-translate-y-0.5 hover:text-white"
+                    >
+                      Admin panel
+                      <span className="text-white" aria-hidden>
+                        👤
+                      </span>
+                    </Link>
+                    <span className="rounded-full bg-emerald-500/15 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-200">
+                      Admin
+                    </span>
+                  </>
+                )}
+              </div>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => setShowAddInvestor(true)}
+                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-emerald-100 transition hover:-translate-y-0.5 hover:border-emerald-300 hover:text-white"
+                >
+                  ＋ Add investor
+                </button>
+              )}
               {asOfDate && (
                 <span className="rounded-full border border-slate-800 bg-slate-950/50 px-3 py-1 text-xs text-slate-300">
                   Updated {asOfDate}
@@ -285,7 +405,6 @@ export default function Home() {
             </div>
           </div>
         </header>
-
 
         <section className="relative">
           {loading && (
@@ -370,9 +489,60 @@ export default function Home() {
                 </div>
               )}
             </>
-          )}
-        </section>
-      </main>
-    </div>
-  );
+        )}
+      </section>
+    </main>
+
+    <Modal
+      open={showAddInvestor}
+      title="Add investor"
+      onClose={() => {
+        if (creating) return;
+        setShowAddInvestor(false);
+        setNewInvestorName("");
+        setCreateError(null);
+      }}
+    >
+      <div className="space-y-3">
+        <label className="block text-sm text-slate-200">
+          Name
+          <input
+            value={newInvestorName}
+            onChange={(e) => setNewInvestorName(e.target.value)}
+            className="mt-1 h-10 w-full rounded-lg border border-slate-800 bg-slate-900 px-3 text-slate-100 outline-none focus:border-cyan-500"
+            placeholder="e.g., Taylor"
+            disabled={creating}
+          />
+        </label>
+        {createError && (
+          <p className="text-sm text-rose-300" role="alert">
+            {createError}
+          </p>
+        )}
+        <div className="flex items-center justify-end gap-2 pt-2">
+          <button
+            type="button"
+            onClick={() => {
+              if (creating) return;
+              setShowAddInvestor(false);
+              setNewInvestorName("");
+              setCreateError(null);
+            }}
+            className="cursor-pointer rounded-lg px-4 py-2 text-sm text-slate-300 transition hover:bg-slate-800"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleCreateInvestor}
+            disabled={creating}
+            className="cursor-pointer rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-cyan-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:bg-cyan-700/60"
+          >
+            {creating ? "Saving..." : "Add investor"}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  </div>
+);
 }

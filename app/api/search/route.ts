@@ -5,6 +5,7 @@ const SEARCH_URL = "https://finnhub.io/api/v1/search";
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const query = searchParams.get("q");
+  console.log("[search] GET", { q: query });
 
   if (!query) {
     return NextResponse.json(
@@ -68,6 +69,7 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    console.log("[search] results", { count: results.length, sample: results.slice(0, 3) });
     return NextResponse.json({ results });
   } catch (error) {
     console.error("Ticker search failed", error);

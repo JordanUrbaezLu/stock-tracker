@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
+import clientPromise from "@/lib/mongodb";
 
 type InvestorSeed = {
   name: string;
@@ -9,6 +10,8 @@ type InvestorSeed = {
     amount: number;
     shares?: number;
     dateInvested?: string;
+    id?: string;
+    allocationIndex?: number;
   }[];
 };
 
@@ -41,10 +44,26 @@ type InvestorFile = {
     name: string;
     allocations: {
       symbol: string;
-      invested: number;
-      shares: number;
-      dateInvested: string;
+      invested?: number;
+      amount?: number;
+      shares?: number;
+      dateInvested?: string | Date;
+      id?: string;
     }[];
+  }>;
+};
+
+type InvestorDbDoc = {
+  investors?: Array<{
+    name?: string;
+    allocations?: Array<{
+      symbol?: string;
+      invested?: number;
+      amount?: number;
+      shares?: number;
+      dateInvested?: string | Date;
+      id?: string;
+    }>;
   }>;
 };
 
@@ -69,6 +88,8 @@ type HoldingValue = {
   changePercent: number | null;
   dateInvested?: string | null;
   history: { time: number; value: number }[];
+  allocationIndex?: number;
+  id?: string;
 };
 
 type InvestorValue = {
@@ -150,7 +171,75 @@ function getStartPriceForDate(
   return history[0].close ?? null;
 }
 
-async function loadInvestors(): Promise<InvestorFile | null> {
+function normalizeNumber(value: unknown): number | undefined {
+  if (value === null || value === undefined) return undefined;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : undefined;
+}
+
+function normalizeDate(value: unknown): string | undefined {
+  if (value instanceof Date) return value.toISOString();
+  if (typeof value === "string" && value.trim()) return value;
+  return undefined;
+}
+
+async function loadInvestorsFromDb(): Promise<InvestorFile | null> {
+  try {
+    const client = await clientPromise;
+    const dbName = process.env.MONGODB_DB;
+    if (!dbName) return null;
+    const db = client.db(dbName);
+
+    const collectionName = process.env.MONGODB_COLLECTION;
+    if (!collectionName) return null;
+
+    const doc =
+      (await db
+        .collection<InvestorDbDoc>(collectionName)
+        .findOne({ "investors.0": { $exists: true } }, { projection: { investors: 1 } })) ||
+      (await db
+        .collection<InvestorDbDoc>(collectionName)
+        .findOne({}, { projection: { investors: 1 } }));
+
+    if (!doc?.investors?.length) return null;
+    console.log("[portfolio] loaded investors from DB", {
+      dbName,
+      collectionName,
+      investorsCount: doc.investors.length,
+    });
+
+    const investors = doc.investors
+      .filter((inv) => inv?.name)
+      .map((inv) => ({
+        name: inv.name as string,
+        allocations: (inv.allocations ?? [])
+          .map((allocation) => {
+            const symbol = allocation?.symbol?.toString().trim();
+            if (!symbol) return null;
+            const invested = normalizeNumber(
+              allocation.invested ?? allocation.amount,
+            );
+            const shares = normalizeNumber(allocation.shares);
+            const dateInvested = normalizeDate(allocation.dateInvested);
+            return {
+              symbol,
+              invested: invested ?? 0,
+              shares: shares ?? undefined,
+              dateInvested,
+            };
+          })
+          .filter(Boolean) as InvestorFile["investors"][number]["allocations"],
+      }));
+
+    if (!investors.length) return null;
+    return { investors };
+  } catch (error) {
+    console.error("Failed to load investors from MongoDB", error);
+    return null;
+  }
+}
+
+async function loadInvestorsFromFile(): Promise<InvestorFile | null> {
   const filePath = path.join(process.cwd(), "data", "investors.json");
   try {
     const raw = await fs.readFile(filePath, "utf8");
@@ -160,6 +249,13 @@ async function loadInvestors(): Promise<InvestorFile | null> {
   } catch {
     return null;
   }
+}
+
+async function loadInvestors(): Promise<InvestorFile | null> {
+  // Prefer MongoDB; fall back to local seed file if DB is unavailable.
+  const fromDb = await loadInvestorsFromDb();
+  if (fromDb) return fromDb;
+  return loadInvestorsFromFile();
 }
 
 function slugify(name: string) {
@@ -176,7 +272,11 @@ export async function GET() {
     );
   }
 
+  console.log("[portfolio] GET invoked");
   const investorFile = await loadInvestors();
+  console.log("[portfolio] data source", {
+    investorsFromFile: investorFile?.investors?.length ?? 0,
+  });
   const fallbackDate = new Date().toISOString();
 
   const grouped = new Map<
@@ -187,25 +287,39 @@ export async function GET() {
   const sourceInvestors = investorFile?.investors;
 
   sourceInvestors?.forEach((investor) => {
+    if (!investor?.name) return;
     const existing = grouped.get(investor.name);
 
-    const mappedAllocations = investor.allocations.map((allocation) => ({
-      symbol: allocation.symbol,
-      amount:
-        "invested" in allocation && typeof allocation.invested === "number"
-          ? allocation.invested
-          : "amount" in allocation && typeof allocation.amount === "number"
-            ? allocation.amount
-            : 0,
-      shares:
-        "shares" in allocation && typeof allocation.shares === "number"
-          ? allocation.shares
-          : undefined,
-      dateInvested:
-        "dateInvested" in allocation && allocation.dateInvested
-          ? allocation.dateInvested
-          : fallbackDate,
-    }));
+    const mappedAllocations = (investor.allocations ?? [])
+      .map((allocation, idx) => {
+        const symbol = allocation.symbol?.toString().trim();
+        if (!symbol) return null;
+
+        const amount =
+          typeof allocation.invested === "number"
+            ? allocation.invested
+            : typeof allocation.amount === "number"
+              ? allocation.amount
+              : 0;
+
+        const shares =
+          typeof allocation.shares === "number"
+            ? allocation.shares
+            : undefined;
+
+        const dateInvested = allocation.dateInvested || fallbackDate;
+        const id = allocation.id ? String(allocation.id) : undefined;
+
+        return {
+          symbol,
+          amount,
+          shares,
+          dateInvested,
+          id,
+          allocationIndex: idx,
+        };
+      })
+      .filter(Boolean) as InvestorSeed["allocations"];
 
     if (existing) {
       existing.allocations.push(...mappedAllocations);
@@ -217,15 +331,34 @@ export async function GET() {
     }
   });
 
-  const investorsSeed: InvestorSeed[] = Array.from(grouped.values());
+  const investorsSeed: InvestorSeed[] = Array.from(grouped.values()).map(
+    (inv) => ({
+      ...inv,
+      allocations: inv.allocations ?? [],
+    }),
+  );
 
-  const earliestStartMs = Math.min(
-    ...investorsSeed.flatMap((investor) =>
+  if (!investorsSeed.length) {
+    return NextResponse.json(
+      {
+        error:
+          "No investor data found. Set MONGODB_DB and MONGODB_COLLECTION with investor data, or provide data/investors.json.",
+      },
+      { status: 404 },
+    );
+  }
+
+  const investmentTimestamps = investorsSeed
+    .flatMap((investor) =>
       investor.allocations.map((allocation) =>
         new Date(allocation?.dateInvested || fallbackDate).getTime(),
       ),
-    ),
-  );
+    )
+    .filter((value) => Number.isFinite(value));
+
+  const earliestStartMs = investmentTimestamps.length
+    ? Math.min(...investmentTimestamps)
+    : Date.now();
   const from = Math.floor(earliestStartMs / 1000);
   const to = Math.floor(Date.now() / 1000);
 
@@ -242,6 +375,18 @@ export async function GET() {
     Promise.all(symbols.map((symbol) => fetchCandle(symbol, from, to, apiKey))),
     Promise.all(symbols.map((symbol) => fetchProfile(symbol, apiKey))),
   ]);
+  console.log("[portfolio] finnhub responses", {
+    symbols,
+    quotes: quotes.map((q, i) => ({ symbol: symbols[i], price: q?.c ?? null })),
+    historyLengths: histories.map((h, i) => ({
+      symbol: symbols[i],
+      points: h?.length ?? 0,
+    })),
+    profiles: profiles.map((p, i) => ({
+      symbol: symbols[i],
+      name: p?.name ?? null,
+    })),
+  });
 
   const priceFromFile = new Map<string, number>();
   investorsSeed.forEach((investor) => {
@@ -291,7 +436,10 @@ export async function GET() {
     );
 
     const holdings: HoldingValue[] = investor.allocations.map(
-      ({ symbol, amount, shares: sharesFromFile, dateInvested }) => {
+      (
+        { symbol, amount, shares: sharesFromFile, dateInvested, id, allocationIndex },
+        idx,
+      ) => {
         const upperSymbol = symbol.toUpperCase();
         const data = symbolData.get(upperSymbol);
 
@@ -307,6 +455,8 @@ export async function GET() {
             change: null,
             changePercent: null,
             history: [],
+            allocationIndex: allocationIndex ?? idx,
+            id,
           };
         }
 
@@ -338,6 +488,8 @@ export async function GET() {
             changePercent: null,
             dateInvested,
             history: [],
+            allocationIndex: allocationIndex ?? idx,
+            id,
           };
         }
 
@@ -363,6 +515,8 @@ export async function GET() {
           changePercent,
           dateInvested,
           history: historyValues,
+          allocationIndex: allocationIndex ?? idx,
+          id,
         };
       },
     );
