@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { HoldingsList } from "../HoldingsList";
 import { useAdmin } from "../../AdminContext";
 import { Sparkline } from "../../Sparkline";
+import { initials, avatarGradient } from "../../avatar";
 
 type HistoryPoint = { time: number; value: number };
 
@@ -221,6 +222,54 @@ export default function InvestorDetail() {
       })
     : "";
 
+  // Personalized AI encouragement, shared with the home card via /api/insight
+  // (same endpoint, same response cache, graceful templated fallback).
+  const [insight, setInsight] = useState<string | null>(null);
+  useEffect(() => {
+    if (!investor) return;
+    const controller = new AbortController();
+    const open = (investor.holdings || []).filter(
+      (h) => h.status !== "closed" && h.changePercent != null,
+    );
+    const gain = investor.currentValue - investor.originalAmountInvested;
+    const pct = investor.originalAmountInvested
+      ? (gain / investor.originalAmountInvested) * 100
+      : 0;
+    const top = open.reduce<HoldingValue | null>(
+      (best, h) =>
+        best == null || (h.changePercent ?? 0) > (best.changePercent ?? 0)
+          ? h
+          : best,
+      null,
+    );
+    fetch("/api/insight", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        name: investor.name,
+        currentValue: investor.currentValue,
+        originalInvested: investor.originalAmountInvested,
+        totalGain: gain,
+        gainPct: pct,
+        holdingsCount: open.length,
+        topHolding: top
+          ? { symbol: top.symbol, changePercent: top.changePercent ?? null }
+          : null,
+        holdings: open.slice(0, 6).map((h) => ({
+          symbol: h.symbol,
+          changePercent: h.changePercent ?? null,
+        })),
+      }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { message?: string } | null) => {
+        if (j?.message) setInsight(j.message);
+      })
+      .catch(() => null);
+    return () => controller.abort();
+  }, [investor]);
+
   const handleSaveInvestment = useCallback(async () => {
     if (!investor || !isAdmin) {
       setInvestorError("Admin access required.");
@@ -418,8 +467,12 @@ export default function InvestorDetail() {
   return (
     <div className="app-backdrop min-h-screen text-slate-100">
       <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6 sm:py-10">
-        <header className="glass flex flex-col gap-5 rounded-3xl p-5 shadow-2xl shadow-black/30 sm:p-6">
-          <div className="flex items-center justify-between gap-4">
+        <header className="glass relative flex flex-col gap-5 overflow-hidden rounded-3xl p-5 shadow-2xl shadow-black/30 sm:p-6">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -right-24 -top-28 h-64 w-64 rounded-full bg-cyan-500/10 blur-3xl"
+          />
+          <div className="relative flex items-center justify-between gap-4">
             <Link
               href="/"
               className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white"
@@ -453,37 +506,69 @@ export default function InvestorDetail() {
             </p>
           )}
           {!loading && !error && investor && (
-            <div className="space-y-5">
-              <div className="flex flex-wrap items-end justify-between gap-4">
-                <div className="space-y-2">
-                  <span className="inline-flex items-center gap-2 rounded-full bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-200 ring-1 ring-white/10">
+            <div className="relative space-y-5">
+              <div className="flex items-center gap-3.5">
+                <span
+                  aria-hidden
+                  className={`avatar-pulse flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br ${avatarGradient(
+                    investor.name,
+                  )} text-lg font-bold text-white shadow-lg shadow-black/30 ring-1 ring-white/20`}
+                >
+                  {initials(investor.name)}
+                </span>
+                <div className="min-w-0">
+                  <h1 className="truncate text-2xl font-bold leading-tight text-white sm:text-3xl">
                     {investor.name}
-                  </span>
-                  <div className="flex flex-wrap items-end gap-3">
-                    <h1 className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
-                      {formatCurrency(investor.currentValue)}
-                    </h1>
-                    <span
-                      className={`mb-1 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-sm font-semibold ring-1 ${tonePill(
-                        originalGain,
-                      )}`}
-                    >
-                      {originalGain >= 0 ? "▲" : "▼"} {formatPercent(originalGainPct)}
-                    </span>
-                  </div>
-                  <p className={`text-sm font-medium ${badgeColor(originalGain)}`}>
-                    {originalGain >= 0 ? "+" : "−"}
-                    {formatCurrency(Math.abs(originalGain))} vs cash in
+                  </h1>
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
+                    Investor portfolio · {(investor.holdings || []).length}{" "}
+                    {(investor.holdings || []).length === 1
+                      ? "holding"
+                      : "holdings"}
                   </p>
                 </div>
               </div>
 
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+                  Current value
+                </p>
+                <div className="mt-1 flex flex-wrap items-end gap-3">
+                  <span className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
+                    {formatCurrency(investor.currentValue)}
+                  </span>
+                  <span
+                    className={`mb-1 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-sm font-semibold ring-1 ${tonePill(
+                      originalGain,
+                    )}`}
+                  >
+                    {originalGain >= 0 ? "▲" : "▼"} {formatPercent(originalGainPct)}
+                  </span>
+                  <span className={`mb-1 text-sm font-medium ${badgeColor(originalGain)}`}>
+                    {originalGain >= 0 ? "+" : "−"}
+                    {formatCurrency(Math.abs(originalGain))} vs cash in
+                  </span>
+                </div>
+              </div>
+
+              {insight && (
+                <div className="flex items-start gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2.5">
+                  <span className="text-base leading-5" aria-hidden>
+                    ✨
+                  </span>
+                  <p className="text-sm leading-5 text-emerald-100">{insight}</p>
+                </div>
+              )}
+
               {investor.valueHistory && investor.valueHistory.length > 1 && (
                 <div className="rounded-2xl border border-white/5 bg-white/2 p-3">
+                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    Portfolio value · since investing
+                  </p>
                   <Sparkline
                     points={investor.valueHistory}
                     positive={originalGain >= 0}
-                    height={110}
+                    height={120}
                     strokeWidth={2}
                     showAxes
                     className="w-full"
@@ -497,28 +582,37 @@ export default function InvestorDetail() {
                     label: "Original invested",
                     value: formatCurrency(investor.originalAmountInvested),
                     tone: "text-white",
+                    box: "border-white/5 bg-white/3",
                   },
                   {
                     label: "Total invested",
                     value: formatCurrency(investor.totalInvested),
                     tone: "text-white",
+                    box: "border-white/5 bg-white/3",
                   },
                   {
                     label: "Current value",
                     value: formatCurrency(investor.currentValue),
-                    tone: "text-cyan-200",
+                    tone: "text-cyan-100",
+                    box: "border-cyan-400/20 bg-cyan-500/10",
                   },
                   {
                     label: "Total gain",
-                    value: formatCurrency(originalGain),
+                    value: `${originalGain >= 0 ? "+" : "−"}${formatCurrency(
+                      Math.abs(originalGain),
+                    )}`,
                     tone: badgeColor(originalGain),
+                    box:
+                      originalGain >= 0
+                        ? "border-emerald-400/20 bg-emerald-500/10"
+                        : "border-rose-400/20 bg-rose-500/10",
                   },
                 ].map((stat) => (
                   <div
                     key={stat.label}
-                    className="rounded-2xl border border-white/5 bg-white/3 px-3 py-2.5"
+                    className={`rounded-2xl border px-3 py-2.5 ${stat.box}`}
                   >
-                    <p className="text-[10px] uppercase tracking-wider text-slate-500">
+                    <p className="text-[10px] uppercase tracking-wider text-slate-400">
                       {stat.label}
                     </p>
                     <p className={`mt-0.5 text-sm font-semibold ${stat.tone}`}>
@@ -530,7 +624,7 @@ export default function InvestorDetail() {
             </div>
           )}
           {!loading && !error && investor && isAdmin && (
-            <div className="flex flex-wrap gap-2 border-t border-white/5 pt-4">
+            <div className="relative flex flex-wrap gap-2 border-t border-white/5 pt-4">
               <button
                 type="button"
                 onClick={() => {

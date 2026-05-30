@@ -10,6 +10,7 @@ import { CompanyLogo } from "./CompanyLogo";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { Carousel } from "./Carousel";
 import { celebrate } from "./confetti";
+import { initials, avatarGradient } from "./avatar";
 
 const MotionLink = motion.create(Link);
 
@@ -130,10 +131,6 @@ function formatPercent(value: number | null | undefined) {
   return `${sign}${value.toFixed(2)}%`;
 }
 
-function isUp(change: number | null) {
-  return change != null && change > 0;
-}
-
 function changeArrow(change: number | null) {
   if (change == null || change === 0) return "•";
   return change > 0 ? "▲" : "▼";
@@ -215,17 +212,36 @@ function returnPct(inv: InvestorValue) {
     : 0;
 }
 
-/** Sum every investor's value history into one combined group timeline. */
+/**
+ * Sum every investor's value history into one combined group timeline.
+ * Forward-filled: at each timestamp we add each investor's last-known value
+ * (0 before their first point) rather than only investors that have a point at
+ * that exact instant — otherwise a timestamp unique to one investor sums to
+ * just their value and the group line shows a fake dip.
+ */
 function combineHistories(investors: InvestorValue[]): HistoryPoint[] {
-  const timeline = new Map<number, number>();
-  investors.forEach((inv) => {
-    (inv.valueHistory ?? []).forEach((p) => {
-      timeline.set(p.time, (timeline.get(p.time) ?? 0) + p.value);
-    });
+  const series = investors
+    .map((inv) => [...(inv.valueHistory ?? [])].sort((a, b) => a.time - b.time))
+    .filter((points) => points.length > 0);
+  const allTimes = Array.from(
+    new Set(series.flatMap((points) => points.map((p) => p.time))),
+  ).sort((a, b) => a - b);
+
+  return allTimes.map((time) => {
+    let value = 0;
+    for (const points of series) {
+      if (time < points[0].time) continue; // not yet invested
+      let lastValue = points[points.length - 1].value;
+      for (let i = points.length - 1; i >= 0; i--) {
+        if (points[i].time <= time) {
+          lastValue = points[i].value;
+          break;
+        }
+      }
+      value += lastValue;
+    }
+    return { time, value };
   });
-  return Array.from(timeline.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map(([time, value]) => ({ time, value }));
 }
 
 /** Medal for the top three places, otherwise the numeric rank. */
@@ -258,48 +274,48 @@ function HoldingRow({
       {...rowEntrance(index)}
       whileHover={{ scale: 1.015 }}
       whileTap={{ scale: 0.985 }}
-      className="flex items-center justify-between gap-3 rounded-2xl border border-white/5 bg-white/3 px-3 py-2.5 transition hover:border-white/10 hover:bg-white/6"
+      className="flex items-center gap-3 rounded-2xl border border-white/5 bg-white/3 px-3 py-2.5 transition hover:border-white/10 hover:bg-white/6"
     >
-      <div className="flex min-w-0 items-center gap-3">
-        <CompanyLogo
-          symbol={holding.symbol}
-          name={holding.name}
-          logo={holding.logo}
-          size={38}
-          delay={index * 70}
-          linkToLookup
-        />
-        <div className="min-w-0 max-w-[5.5rem] sm:max-w-[7rem]">
-          <div className="flex items-center gap-1.5">
-            <p className="truncate text-sm font-semibold text-white">
-              {holding.symbol}
-            </p>
-            {closed && (
-              <span className="rounded-full bg-amber-400/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-200 ring-1 ring-amber-300/30">
-                Sold
-              </span>
-            )}
-          </div>
-          <p className="truncate text-xs text-slate-400">
+      <CompanyLogo
+        symbol={holding.symbol}
+        name={holding.name}
+        logo={holding.logo}
+        size={38}
+        delay={index * 70}
+        linkToLookup
+      />
+      <div className="min-w-0 flex-1">
+        {/* Row 1: ticker + (sold) + change % — ticker is never crowded out */}
+        <div className="flex items-center gap-1.5">
+          <p className="truncate text-sm font-semibold text-white">
+            {holding.symbol}
+          </p>
+          {closed && (
+            <span className="shrink-0 rounded-full bg-amber-400/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-200 ring-1 ring-amber-300/30">
+              Sold
+            </span>
+          )}
+          <span
+            className={`ml-auto inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ${tone.pill}`}
+          >
+            {changeArrow(holding.change)} {formatPercent(holding.changePercent)}
+          </span>
+        </div>
+        {/* Row 2: company name (truncates) + start / now (or sold) values */}
+        <div className="mt-0.5 flex items-center gap-2">
+          <p className="min-w-0 flex-1 truncate text-xs text-slate-400">
             {holding.name || "—"}
           </p>
+          <p className="shrink-0 whitespace-nowrap text-[11px] text-slate-400">
+            <span className="text-slate-500">Start</span>{" "}
+            {formatCurrency(invested)}
+            <span className="px-1 text-slate-600">·</span>
+            <span className="text-slate-500">{closed ? "Sold" : "Now"}</span>{" "}
+            <span className={closed ? "text-amber-200" : "text-slate-200"}>
+              {formatCurrency(closed ? holding.proceeds : holding.currentValue)}
+            </span>
+          </p>
         </div>
-      </div>
-      <div className="text-right">
-        <span
-          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ring-1 ${tone.pill}`}
-        >
-          {changeArrow(holding.change)} {formatPercent(holding.changePercent)}
-        </span>
-        <p className="mt-1 text-[11px] text-slate-400">
-          <span className="text-slate-500">Start</span>{" "}
-          {formatCurrency(invested)}
-          <span className="px-1 text-slate-600">·</span>
-          <span className="text-slate-500">{closed ? "Sold" : "Now"}</span>{" "}
-          <span className={closed ? "text-amber-200" : "text-slate-200"}>
-            {formatCurrency(closed ? holding.proceeds : holding.currentValue)}
-          </span>
-        </p>
       </div>
     </motion.div>
   );
@@ -316,6 +332,47 @@ function InvestorCard({ investor }: { investor: InvestorValue }) {
     Array.isArray(investor.valueHistory) && investor.valueHistory.length > 1;
   const best = topPerformer(mergedHoldings);
 
+  // Personalized AI encouragement. Refetched per investor (and on each reload,
+  // since `investor` is recreated when the portfolio refreshes). The endpoint
+  // always resolves to a message — real AI when ANTHROPIC_API_KEY is set, a
+  // warm templated line otherwise — so every card gets one.
+  const [insight, setInsight] = useState<string | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    const merged = mergeHoldings(investor.holdings || []);
+    const gain = investor.currentValue - investor.originalAmountInvested;
+    const pct = investor.originalAmountInvested
+      ? (gain / investor.originalAmountInvested) * 100
+      : 0;
+    const top = topPerformer(merged);
+    fetch("/api/insight", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        name: investor.name,
+        currentValue: investor.currentValue,
+        originalInvested: investor.originalAmountInvested,
+        totalGain: gain,
+        gainPct: pct,
+        holdingsCount: merged.length,
+        topHolding: top
+          ? { symbol: top.symbol, changePercent: top.changePercent ?? null }
+          : null,
+        holdings: merged.slice(0, 6).map((h) => ({
+          symbol: h.symbol,
+          changePercent: h.changePercent ?? null,
+        })),
+      }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { message?: string } | null) => {
+        if (j?.message) setInsight(j.message);
+      })
+      .catch(() => null);
+    return () => controller.abort();
+  }, [investor]);
+
   return (
     <Link
       href={`/investor/${investor.slug}`}
@@ -330,10 +387,23 @@ function InvestorCard({ investor }: { investor: InvestorValue }) {
         />
         <div className="relative flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="inline-flex items-center gap-2 rounded-full bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-200 ring-1 ring-white/10">
-                {investor.name}
+            <div className="flex items-center gap-2.5">
+              <span
+                aria-hidden
+                className={`avatar-pulse flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-linear-to-br ${avatarGradient(
+                  investor.name,
+                )} text-[13px] font-bold text-white shadow-lg shadow-black/30 ring-1 ring-white/20`}
+              >
+                {initials(investor.name)}
               </span>
+              <div className="min-w-0">
+                <p className="truncate text-base font-semibold leading-tight text-white">
+                  {investor.name}
+                </p>
+                <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-slate-500">
+                  Investor
+                </p>
+              </div>
             </div>
             <AnimatedNumber
               value={investor.currentValue}
@@ -388,16 +458,23 @@ function InvestorCard({ investor }: { investor: InvestorValue }) {
           </div>
         </div>
 
-        {best && (best.changePercent ?? 0) > 0 && (
-          <div className="relative flex items-center gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2">
-            <span className="text-base" aria-hidden>
-              🔥
+        {(insight || (best && (best.changePercent ?? 0) > 0)) && (
+          <div className="relative flex items-start gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2">
+            <span className="text-base leading-5" aria-hidden>
+              {insight ? "✨" : "🔥"}
             </span>
-            <p className="text-xs text-emerald-100">
-              <span className="font-semibold">{best.symbol}</span> leading at{" "}
-              <span className="font-semibold">
-                {formatPercent(best.changePercent)}
-              </span>
+            <p className="text-xs leading-5 text-emerald-100">
+              {insight ? (
+                insight
+              ) : (
+                <>
+                  <span className="font-semibold">{best!.symbol}</span> leading
+                  at{" "}
+                  <span className="font-semibold">
+                    {formatPercent(best!.changePercent)}
+                  </span>
+                </>
+              )}
             </p>
           </div>
         )}
@@ -496,7 +573,7 @@ function LeaderboardSlide({
           {board.title}
         </p>
       </div>
-      <div className="mt-3 space-y-1.5">
+      <div className="mt-2.5 space-y-1">
         {ranked.map((inv, idx) => {
           const barPct = Math.max(
             4,
@@ -510,7 +587,7 @@ function LeaderboardSlide({
               {...rowEntrance(idx)}
               whileHover={{ x: 3 }}
               whileTap={{ scale: 0.98 }}
-              className="relative block overflow-hidden rounded-2xl border border-white/5 bg-white/3 px-3 py-2 transition hover:border-white/10 hover:bg-white/6"
+              className="relative block overflow-hidden rounded-2xl border border-white/5 bg-white/3 px-3 py-1.5 transition hover:border-white/10 hover:bg-white/6"
             >
               <div
                 aria-hidden
@@ -585,7 +662,7 @@ function TopStocksSlide({ investors }: { investors: InvestorValue[] }) {
           View all →
         </MotionLink>
       </div>
-      <div className="mt-3 space-y-1.5">
+      <div className="mt-2.5 space-y-1">
         {rows.length === 0 && (
           <div className="rounded-2xl border border-dashed border-white/10 bg-white/2 px-3 py-5 text-center text-xs text-slate-400">
             No holdings yet.
@@ -601,7 +678,7 @@ function TopStocksSlide({ investors }: { investors: InvestorValue[] }) {
               {...rowEntrance(idx)}
               whileHover={{ x: 3 }}
               whileTap={{ scale: 0.98 }}
-              className="relative block overflow-hidden rounded-2xl border border-white/5 bg-white/3 px-3 py-2 transition hover:border-white/10 hover:bg-white/6"
+              className="relative block overflow-hidden rounded-2xl border border-white/5 bg-white/3 px-3 py-1.5 transition hover:border-white/10 hover:bg-white/6"
             >
               <div
                 aria-hidden
@@ -623,11 +700,11 @@ function TopStocksSlide({ investors }: { investors: InvestorValue[] }) {
                     symbol={row.symbol}
                     name={row.name}
                     logo={row.logo}
-                    size={30}
+                    size={26}
                     delay={idx * 70}
                     linkToLookup
                   />
-                        <div className="min-w-0 max-w-[5.5rem] sm:max-w-[7rem]">
+                        <div className="min-w-0 max-w-22 sm:max-w-28">
                           <p className="truncate text-sm font-semibold text-white">
                             {row.symbol}
                           </p>
@@ -667,15 +744,15 @@ function HeroCarousel({
   const leader = [...investors].sort((a, b) => returnPct(b) - returnPct(a))[0];
 
   const overview = (
-    <div>
+    <div className="flex h-full flex-col">
       <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
         Group portfolio · {count} {count === 1 ? "investor" : "investors"}
       </p>
-      <div className="mt-1 flex min-w-0 flex-nowrap items-center gap-2 sm:gap-3">
+      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1.5 sm:gap-x-3">
         <AnimatedNumber
           value={groupCurrent}
           format={formatCurrency}
-          className="shrink min-w-0 text-2xl font-bold tracking-tight text-white sm:text-3xl"
+          className="text-2xl font-bold tracking-tight text-white sm:text-3xl"
         />
         <div className="flex shrink-0 items-center gap-1.5">
           <span
@@ -693,27 +770,36 @@ function HeroCarousel({
           </span>
         </div>
         {leader && multi && (
-          <div className="ml-auto flex shrink-0 items-center gap-1.5 rounded-full border border-amber-400/25 bg-amber-400/10 px-2 py-1 sm:gap-2 sm:px-2.5">
-            <span className="text-xs" aria-hidden>
-              🥇
-            </span>
-            <span className="max-w-10 truncate text-xs font-semibold text-amber-100 sm:max-w-14 sm:text-sm md:max-w-20">
-              {leader.name}
-            </span>
-            <span className="whitespace-nowrap text-[11px] font-semibold text-amber-200/90 sm:text-xs">
-              {formatPercent(returnPct(leader))}
+          // Full-width on mobile (drops to its own line, never clips the card
+          // edge); inline + right-aligned from sm up.
+          <div className="w-full min-w-0 sm:ml-auto sm:w-auto">
+            <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-amber-400/25 bg-amber-400/10 px-2 py-1 sm:gap-2 sm:px-2.5">
+              <span className="text-xs" aria-hidden>
+                🥇
+              </span>
+              <span className="max-w-24 truncate text-xs font-semibold text-amber-100 sm:max-w-14 sm:text-sm md:max-w-20">
+                {leader.name}
+              </span>
+              <span className="whitespace-nowrap text-[11px] font-semibold text-amber-200/90 sm:text-xs">
+                {formatPercent(returnPct(leader))}
+              </span>
             </span>
           </div>
         )}
       </div>
       {groupHistory.length > 1 && (
-        <div className="relative mt-3">
+        // Cap the graph height on every breakpoint. Without a cap, the filled
+        // SVG (height:100% with no taller sibling to bound it) falls back to
+        // aspect-ratio sizing and balloons on wide screens — which made the
+        // Overview the tallest slide and left the list panels with dead space.
+        // Capped, the list slides set the height and the graph stays sane.
+        <div className="relative mt-3 flex max-h-24 min-h-0 flex-1 sm:max-h-32">
           <Sparkline
             points={groupHistory}
             positive={groupGain >= 0}
-            height={58}
             strokeWidth={2}
             showAxes
+            fill
             className="w-full"
           />
         </div>
@@ -733,7 +819,7 @@ function HeroCarousel({
   }
 
   return (
-    <div className="glass relative overflow-hidden rounded-3xl p-4 shadow-2xl shadow-black/30 sm:p-5">
+    <div className="glass relative overflow-hidden rounded-3xl p-3.5 shadow-2xl shadow-black/30 sm:p-4">
       <div
         aria-hidden
         className="pointer-events-none absolute -right-20 -top-24 h-56 w-56 rounded-full bg-fuchsia-500/10 blur-3xl"
@@ -972,6 +1058,10 @@ export default function Home() {
               arrows
               hint="Swipe to explore"
               hintMobileOnly
+              // Round the clip + pad each slide so the card's rounded corners
+              // and drop shadow aren't cut into a square corner by the viewport.
+              viewportClassName="rounded-[2rem]"
+              slidePadding="px-1 py-1.5"
               labels={investors.map((inv) => inv.name)}
               slides={investors.map((investor) => (
                 <InvestorCard key={investor.slug} investor={investor} />

@@ -18,6 +18,10 @@ type CarouselProps = {
   className?: string;
   /** Tailwind padding applied to each slide (defaults to a hair of gutter). */
   slidePadding?: string;
+  /** Extra classes for the clipping viewport. Round it (e.g. rounded-[1.75rem])
+   *  when slides are rounded cards with shadows, so the overflow clip follows
+   *  the card corners instead of cutting a square corner around the shadow. */
+  viewportClassName?: string;
 };
 
 /**
@@ -33,6 +37,7 @@ export function Carousel({
   hintMobileOnly = false,
   className,
   slidePadding = "px-0.5",
+  viewportClassName = "",
 }: CarouselProps) {
   const [emblaRef, embla] = useEmblaCarousel(
     { align: "center", containScroll: "trimSnaps", duration: 20 },
@@ -67,7 +72,7 @@ export function Carousel({
 
   return (
     <div className={`relative ${className ?? ""}`}>
-      <div className="overflow-hidden" ref={emblaRef}>
+      <div className={`overflow-hidden ${viewportClassName}`} ref={emblaRef}>
         <div className="flex" style={{ touchAction: "pan-y" }}>
           {slides.map((slide, i) => (
             <div
@@ -80,46 +85,49 @@ export function Carousel({
         </div>
       </div>
 
-      {arrows && multi && (
-        <>
-          <button
-            type="button"
-            onClick={() => embla?.scrollPrev()}
-            disabled={!canPrev}
-            aria-label="Previous"
-            className="absolute -left-3 top-1/2 hidden h-11 w-11 -translate-y-1/2 cursor-pointer place-items-center rounded-full border border-white/10 bg-slate-900/80 text-cyan-200 shadow-lg backdrop-blur transition hover:border-cyan-300/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-30 md:grid lg:-left-6"
-          >
-            ◀
-          </button>
-          <button
-            type="button"
-            onClick={() => embla?.scrollNext()}
-            disabled={!canNext}
-            aria-label="Next"
-            className="absolute -right-3 top-1/2 hidden h-11 w-11 -translate-y-1/2 cursor-pointer place-items-center rounded-full border border-white/10 bg-slate-900/80 text-cyan-200 shadow-lg backdrop-blur transition hover:border-cyan-300/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-30 md:grid lg:-right-6"
-          >
-            ▶
-          </button>
-        </>
-      )}
-
       {multi && (
         <div className="mt-4 flex flex-col items-center gap-2">
-          <div className="flex items-center gap-2">
-            {slides.map((_, i) => (
+          {/* On desktop the arrows sit inline with the dots (◀ • • • ▶) rather
+              than floating over the card content; on mobile it's swipe + dots. */}
+          <div className="flex items-center gap-3">
+            {arrows && (
               <button
-                key={i}
                 type="button"
-                onClick={() => embla?.scrollTo(i)}
-                aria-label={`Go to ${labels?.[i] ?? `slide ${i + 1}`}`}
-                title={labels?.[i]}
-                className={`h-2 rounded-full transition-all ${
-                  i === selected
-                    ? "w-7 bg-linear-to-r from-cyan-400 to-fuchsia-400"
-                    : "w-2 bg-slate-600 hover:bg-slate-400"
-                }`}
-              />
-            ))}
+                onClick={() => embla?.scrollPrev()}
+                disabled={!canPrev}
+                aria-label="Previous"
+                className="hidden h-8 w-8 cursor-pointer place-items-center rounded-full border border-white/10 bg-white/5 text-cyan-200 transition hover:border-cyan-300/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-30 md:grid"
+              >
+                ◀
+              </button>
+            )}
+            <div className="flex items-center gap-2">
+              {slides.map((_, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  onClick={() => embla?.scrollTo(i)}
+                  aria-label={`Go to ${labels?.[i] ?? `slide ${i + 1}`}`}
+                  title={labels?.[i]}
+                  className={`h-2 rounded-full transition-all ${
+                    i === selected
+                      ? "w-7 bg-linear-to-r from-cyan-400 to-fuchsia-400"
+                      : "w-2 bg-slate-600 hover:bg-slate-400"
+                  }`}
+                />
+              ))}
+            </div>
+            {arrows && (
+              <button
+                type="button"
+                onClick={() => embla?.scrollNext()}
+                disabled={!canNext}
+                aria-label="Next"
+                className="hidden h-8 w-8 cursor-pointer place-items-center rounded-full border border-white/10 bg-white/5 text-cyan-200 transition hover:border-cyan-300/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-30 md:grid"
+              >
+                ▶
+              </button>
+            )}
           </div>
           {hintText && (
             <p

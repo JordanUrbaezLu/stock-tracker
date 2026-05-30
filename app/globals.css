@@ -75,8 +75,22 @@ body {
   }
 }
 
-/* Glass surface used across cards and panels. */
+/* Glass surface used across cards and panels. The blur + gradient live on a
+   ::before so they clip to the card's border-radius cleanly — applying
+   backdrop-filter directly on a rounded element leaves a faint concentric
+   corner in Chromium. The border stays on the element so per-card border-color
+   utilities (e.g. border-rose-500/30) keep working. */
 .glass {
+  position: relative;
+  isolation: isolate;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+.glass::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
   background: linear-gradient(
     160deg,
     rgba(255, 255, 255, 0.06),
@@ -85,7 +99,6 @@ body {
   );
   backdrop-filter: blur(16px) saturate(140%);
   -webkit-backdrop-filter: blur(16px) saturate(140%);
-  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .gradient-text {
@@ -338,6 +351,30 @@ button.company-logo {
   animation: none;
 }
 
+/* Investor avatar: gentle breathing glow ring (mirrors the live-data dot). */
+@keyframes avatar-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.3);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(255, 255, 255, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
+  }
+}
+.avatar-pulse {
+  position: relative;
+}
+.avatar-pulse::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  animation: avatar-pulse 2.8s ease-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-fade-in-up,
   .skeleton::after,
@@ -345,6 +382,7 @@ button.company-logo {
   .company-logo__ring,
   .company-logo__bob,
   .live-dot,
+  .avatar-pulse::after,
   .app-backdrop::after {
     animation: none;
   }
