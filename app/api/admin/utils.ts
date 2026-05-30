@@ -26,6 +26,7 @@ export type DbAllocation = {
 
 export type DbInvestor = {
   name: string;
+  originalAmountInvested?: number;
   allocations: DbAllocation[];
 };
 

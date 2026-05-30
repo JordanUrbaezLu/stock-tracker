@@ -4,14 +4,17 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
+import { motion, AnimatePresence } from "motion/react";
 import { HoldingsList } from "../HoldingsList";
 import { useAdmin } from "../../AdminContext";
+import { Sparkline } from "../../Sparkline";
 
 type HistoryPoint = { time: number; value: number };
 
 type HoldingValue = {
   symbol: string;
   name?: string | null;
+  logo?: string | null;
   amountInvested: number;
   startPrice: number | null;
   currentPrice: number | null;
@@ -23,11 +26,17 @@ type HoldingValue = {
   history: HistoryPoint[];
   allocationIndex?: number;
   id?: string;
+  status?: "open" | "closed";
+  soldDate?: string | null;
+  proceeds?: number | null;
+  realizedChange?: number | null;
+  realizedChangePercent?: number | null;
 };
 
 type InvestorValue = {
   name: string;
   slug: string;
+  originalAmountInvested: number;
   totalInvested: number;
   currentValue: number;
   change: number;
@@ -53,23 +62,41 @@ function Modal({
   children: ReactNode;
   onClose: () => void;
 }) {
-  if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
-      <div className="w-full max-w-lg rounded-2xl border border-cyan-500/30 bg-slate-950 p-5 shadow-xl shadow-cyan-500/20">
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-white">{title}</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="cursor-pointer rounded-full px-3 py-1 text-sm text-slate-300 transition hover:bg-slate-800"
+    <AnimatePresence>
+      {open && (
+        <motion.div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.18 }}
+          onClick={onClose}
+        >
+          <motion.div
+            className="glass w-full max-w-lg rounded-3xl p-6 shadow-2xl shadow-cyan-500/10"
+            initial={{ opacity: 0, scale: 0.92, y: 24 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 12 }}
+            transition={{ type: "spring", stiffness: 320, damping: 26 }}
+            onClick={(e) => e.stopPropagation()}
           >
-            ✕
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-semibold text-white">{title}</h3>
+              <button
+                type="button"
+                onClick={onClose}
+                className="grid h-8 w-8 cursor-pointer place-items-center rounded-full text-slate-300 transition hover:bg-white/10 hover:text-white"
+                aria-label="Close"
+              >
+                ✕
+              </button>
+            </div>
+            {children}
+          </motion.div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -84,12 +111,21 @@ function formatCurrency(value: number | null | undefined) {
 
 function formatPercent(value: number | null | undefined) {
   if (value == null || Number.isNaN(value)) return "—";
-  return `${value.toFixed(2)}%`;
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toFixed(2)}%`;
 }
 
 function badgeColor(change: number | null) {
-  if (change == null || change === 0) return "text-slate-600";
-  return change > 0 ? "text-emerald-500" : "text-rose-500";
+  if (change == null || change === 0) return "text-slate-300";
+  return change > 0 ? "text-emerald-400" : "text-rose-400";
+}
+
+function tonePill(change: number | null) {
+  if (change == null || change === 0)
+    return "bg-slate-500/15 text-slate-200 ring-slate-400/20";
+  return change > 0
+    ? "bg-emerald-500/15 text-emerald-300 ring-emerald-400/25"
+    : "bg-rose-500/15 text-rose-300 ring-rose-400/25";
 }
 
 export default function InvestorDetail() {
@@ -371,27 +407,41 @@ export default function InvestorDetail() {
     }
   }, [investor, router, isAdmin]);
 
+  const originalGain = investor
+    ? investor.currentValue - investor.originalAmountInvested
+    : 0;
+  const originalGainPct =
+    investor && investor.originalAmountInvested
+      ? (originalGain / investor.originalAmountInvested) * 100
+      : 0;
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-black text-slate-100">
-      <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-8 px-5 py-12 sm:px-8">
-        <header className="flex flex-col gap-4 rounded-3xl border border-cyan-500/20 bg-slate-900/80 p-6 shadow-lg shadow-cyan-500/20">
+    <div className="app-backdrop min-h-screen text-slate-100">
+      <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6 sm:py-10">
+        <header className="glass flex flex-col gap-5 rounded-3xl p-5 shadow-2xl shadow-black/30 sm:p-6">
           <div className="flex items-center justify-between gap-4">
             <Link
               href="/"
-              className="inline-flex items-center gap-2 rounded-full border border-cyan-500/30 bg-slate-900 px-4 py-2 text-sm font-semibold text-cyan-100 shadow-sm shadow-cyan-500/20 transition hover:border-cyan-400 hover:bg-slate-800"
+              className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white"
             >
-              ← Back to summary
+              ← Back
             </Link>
-            <div className="flex items-center gap-3 text-sm text-slate-400">
+            <div className="flex items-center gap-3 text-xs text-slate-400">
               {isAdmin && (
-                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-200">
+                <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 font-semibold uppercase tracking-wide text-emerald-200">
                   Admin
                 </span>
               )}
-              <span>{asOfDate ? `Prices as of ${asOfDate}` : "Loading prices..."}</span>
+              <span>{asOfDate ? `As of ${asOfDate}` : "Loading…"}</span>
             </div>
           </div>
-          {loading && <p className="text-sm text-slate-400">Loading portfolio...</p>}
+          {loading && (
+            <div className="space-y-3">
+              <div className="skeleton h-4 w-28 rounded-full" />
+              <div className="skeleton h-10 w-48 rounded-lg" />
+              <div className="skeleton h-14 w-full rounded-xl" />
+            </div>
+          )}
           {error && (
             <p className="text-sm text-rose-300" role="alert">
               {error}
@@ -403,50 +453,98 @@ export default function InvestorDetail() {
             </p>
           )}
           {!loading && !error && investor && (
-            <div className="mt-4 grid gap-4 lg:grid-cols-[2fr,1.1fr]">
-              <div className="space-y-2">
-                <div className="inline-flex items-center gap-2 rounded-full bg-linear-to-r from-cyan-500 via-fuchsia-500 to-indigo-500 px-3 py-1 text-xs font-semibold uppercase tracking-[0.25em] text-slate-900">
-                  {investor.name}
-                </div>
-                <div className="flex flex-wrap items-end gap-3">
-                  <h1 className="text-4xl font-semibold text-white">
-                    {formatCurrency(investor.currentValue)}
-                  </h1>
-                  <p className={`text-lg font-semibold ${badgeColor(investor.change)}`}>
-                    {investor.change >= 0 ? "▲" : "▼"} {formatCurrency(Math.abs(investor.change))}
+            <div className="space-y-5">
+              <div className="flex flex-wrap items-end justify-between gap-4">
+                <div className="space-y-2">
+                  <span className="inline-flex items-center gap-2 rounded-full bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.28em] text-cyan-200 ring-1 ring-white/10">
+                    {investor.name}
+                  </span>
+                  <div className="flex flex-wrap items-end gap-3">
+                    <h1 className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
+                      {formatCurrency(investor.currentValue)}
+                    </h1>
+                    <span
+                      className={`mb-1 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-sm font-semibold ring-1 ${tonePill(
+                        originalGain,
+                      )}`}
+                    >
+                      {originalGain >= 0 ? "▲" : "▼"} {formatPercent(originalGainPct)}
+                    </span>
+                  </div>
+                  <p className={`text-sm font-medium ${badgeColor(originalGain)}`}>
+                    {originalGain >= 0 ? "+" : "−"}
+                    {formatCurrency(Math.abs(originalGain))} vs cash in
                   </p>
                 </div>
-                <p className="text-sm text-slate-400">
-                  {formatPercent(investor.changePercent)} vs start
-                </p>
               </div>
-              <div className="rounded-2xl border border-cyan-500/20 bg-slate-900/70 p-4 text-sm text-slate-300 shadow-lg shadow-cyan-500/20">
-                <h2 className="text-lg font-semibold text-white">Quick stats</h2>
-                <ul className="mt-3 space-y-1">
-                  <li>Total invested: {formatCurrency(investor.totalInvested)}</li>
-                  <li>Current value: {formatCurrency(investor.currentValue)}</li>
-                  <li>Gain/Loss: {formatCurrency(investor.change)}</li>
-                  <li>Return: {formatPercent(investor.changePercent)}</li>
-                </ul>
+
+              {investor.valueHistory && investor.valueHistory.length > 1 && (
+                <div className="rounded-2xl border border-white/5 bg-white/2 p-3">
+                  <Sparkline
+                    points={investor.valueHistory}
+                    positive={originalGain >= 0}
+                    height={110}
+                    strokeWidth={2}
+                    showAxes
+                    className="w-full"
+                  />
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                {[
+                  {
+                    label: "Original invested",
+                    value: formatCurrency(investor.originalAmountInvested),
+                    tone: "text-white",
+                  },
+                  {
+                    label: "Total invested",
+                    value: formatCurrency(investor.totalInvested),
+                    tone: "text-white",
+                  },
+                  {
+                    label: "Current value",
+                    value: formatCurrency(investor.currentValue),
+                    tone: "text-cyan-200",
+                  },
+                  {
+                    label: "Total gain",
+                    value: formatCurrency(originalGain),
+                    tone: badgeColor(originalGain),
+                  },
+                ].map((stat) => (
+                  <div
+                    key={stat.label}
+                    className="rounded-2xl border border-white/5 bg-white/3 px-3 py-2.5"
+                  >
+                    <p className="text-[10px] uppercase tracking-wider text-slate-500">
+                      {stat.label}
+                    </p>
+                    <p className={`mt-0.5 text-sm font-semibold ${stat.tone}`}>
+                      {stat.value}
+                    </p>
+                  </div>
+                ))}
               </div>
             </div>
           )}
           {!loading && !error && investor && isAdmin && (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 border-t border-white/5 pt-4">
               <button
                 type="button"
                 onClick={() => {
                   setRenameValue(investor.name);
                   setShowRename(true);
                 }}
-                className="cursor-pointer rounded-lg border border-cyan-500/40 px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:border-cyan-300 hover:text-white"
+                className="cursor-pointer rounded-lg border border-cyan-500/40 px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/10 hover:text-white"
               >
                 Rename investor
               </button>
               <button
                 type="button"
                 onClick={handleDeleteInvestor}
-                className="cursor-pointer rounded-lg border border-rose-500/40 px-3 py-2 text-xs font-semibold text-rose-200 transition hover:border-rose-400 hover:text-white"
+                className="cursor-pointer rounded-lg border border-rose-500/40 px-3 py-2 text-xs font-semibold text-rose-200 transition hover:border-rose-400 hover:bg-rose-500/10 hover:text-white"
               >
                 Delete investor
               </button>
@@ -455,15 +553,15 @@ export default function InvestorDetail() {
         </header>
 
         {!loading && !error && investor && (
-          <section className="overflow-hidden rounded-3xl border border-cyan-500/20 bg-slate-900/80 shadow-lg shadow-cyan-500/20">
-            <div className="space-y-4 p-4">
+          <section className="glass overflow-hidden rounded-3xl p-5 shadow-2xl shadow-black/30 sm:p-6">
+            <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Holdings</h2>
                 {isAdmin && (
                   <button
                     type="button"
                     onClick={openAddModal}
-                    className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-cyan-500/40 bg-slate-900 px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:border-cyan-300 hover:text-white"
+                    className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-cyan-500/40 bg-white/5 px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/10 hover:text-white"
                   >
                     <span aria-hidden>＋</span> Add investment
                   </button>
@@ -502,7 +600,7 @@ export default function InvestorDetail() {
             <input
               value={formSymbol}
               onChange={(e) => setFormSymbol(e.target.value.toUpperCase())}
-              className="mt-1 h-10 w-full rounded-lg border border-slate-800 bg-slate-900 px-3 text-slate-100 outline-none focus:border-cyan-500"
+              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-slate-100 outline-none transition focus:border-cyan-400"
               placeholder="AAPL"
               disabled={saving}
             />
@@ -515,7 +613,7 @@ export default function InvestorDetail() {
               type="number"
               min="0"
               step="0.01"
-              className="mt-1 h-10 w-full rounded-lg border border-slate-800 bg-slate-900 px-3 text-slate-100 outline-none focus:border-cyan-500"
+              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-slate-100 outline-none transition focus:border-cyan-400"
               placeholder="100"
               disabled={saving}
             />
@@ -528,7 +626,7 @@ export default function InvestorDetail() {
               type="number"
               min="0"
               step="0.0001"
-              className="mt-1 h-10 w-full rounded-lg border border-slate-800 bg-slate-900 px-3 text-slate-100 outline-none focus:border-cyan-500"
+              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-slate-100 outline-none transition focus:border-cyan-400"
               placeholder="0.1234"
               disabled={saving}
             />
@@ -539,7 +637,7 @@ export default function InvestorDetail() {
               value={formDate}
               onChange={(e) => setFormDate(e.target.value)}
               type="date"
-              className="mt-1 h-10 w-full rounded-lg border border-slate-800 bg-slate-900 px-3 text-slate-100 outline-none focus:border-cyan-500"
+              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-slate-100 outline-none transition focus:border-cyan-400"
               disabled={saving}
             />
           </label>
@@ -565,7 +663,7 @@ export default function InvestorDetail() {
               type="button"
               onClick={handleSaveInvestment}
               disabled={saving}
-              className="cursor-pointer rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-cyan-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:bg-cyan-700/60"
+              className="cursor-pointer rounded-xl bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? "Saving..." : modalMode === "add" ? "Add" : "Save"}
             </button>
@@ -588,7 +686,7 @@ export default function InvestorDetail() {
             <input
               value={renameValue}
               onChange={(e) => setRenameValue(e.target.value)}
-              className="mt-1 h-10 w-full rounded-lg border border-slate-800 bg-slate-900 px-3 text-slate-100 outline-none focus:border-cyan-500"
+              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-slate-100 outline-none transition focus:border-cyan-400"
               placeholder="Investor name"
               disabled={saving}
             />
@@ -614,7 +712,7 @@ export default function InvestorDetail() {
               type="button"
               onClick={() => handleRename(renameValue)}
               disabled={saving}
-              className="cursor-pointer rounded-lg bg-cyan-500 px-4 py-2 text-sm font-semibold text-cyan-950 transition hover:bg-cyan-400 disabled:cursor-not-allowed disabled:bg-cyan-700/60"
+              className="cursor-pointer rounded-xl bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? "Saving..." : "Save"}
             </button>
