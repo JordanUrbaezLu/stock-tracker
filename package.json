@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",
+    "embla-carousel-react": "^8.6.0",
+    "embla-carousel-wheel-gestures": "^8.1.0",
     "mongodb": "^6.21.0",
     "motion": "^12.40.0",
     "next": "16.0.10",

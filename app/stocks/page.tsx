@@ -264,8 +264,9 @@ export default function StocksPage() {
                           logo={row.logo}
                           size={40}
                           delay={Math.min(idx, 8) * 60}
+                          linkToLookup
                         />
-                        <div className="min-w-0">
+                        <div className="min-w-0 max-w-[6rem] sm:max-w-[8rem]">
                           <p className="truncate text-sm font-semibold text-white">
                             {row.symbol}
                           </p>
