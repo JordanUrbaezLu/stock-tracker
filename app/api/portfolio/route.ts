@@ -3,8 +3,11 @@ import fs from "fs/promises";
 import path from "path";
 import clientPromise from "@/lib/mongodb";
 
+type SoldSeed = { date?: string; amount?: number; shares?: number };
+
 type InvestorSeed = {
   name: string;
+  originalAmountInvested?: number;
   allocations: {
     symbol: string;
     amount: number;
@@ -12,6 +15,7 @@ type InvestorSeed = {
     dateInvested?: string;
     id?: string;
     allocationIndex?: number;
+    sold?: SoldSeed;
   }[];
 };
 
@@ -36,34 +40,47 @@ type FinnhubQuote = {
 type FinnhubProfile = {
   name?: string | null;
   ticker?: string | null;
+  logo?: string | null;
   [key: string]: unknown;
+};
+
+type SoldRaw = {
+  date?: string | Date;
+  amount?: number;
+  proceeds?: number;
+  price?: number;
+  shares?: number;
+};
+
+type AllocationRaw = {
+  symbol?: string;
+  invested?: number;
+  amount?: number;
+  shares?: number;
+  dateInvested?: string | Date;
+  id?: string;
+  sold?: SoldRaw;
+  // Flat alternatives, also accepted.
+  soldDate?: string | Date;
+  soldAmount?: number;
+  soldShares?: number;
 };
 
 type InvestorFile = {
   investors: Array<{
     name: string;
-    allocations: {
-      symbol: string;
-      invested?: number;
-      amount?: number;
-      shares?: number;
-      dateInvested?: string | Date;
-      id?: string;
-    }[];
+    originalAmountInvested?: number;
+    allocations: Array<
+      AllocationRaw & { symbol: string; sold?: SoldSeed }
+    >;
   }>;
 };
 
 type InvestorDbDoc = {
   investors?: Array<{
     name?: string;
-    allocations?: Array<{
-      symbol?: string;
-      invested?: number;
-      amount?: number;
-      shares?: number;
-      dateInvested?: string | Date;
-      id?: string;
-    }>;
+    originalAmountInvested?: number;
+    allocations?: AllocationRaw[];
   }>;
 };
 
@@ -74,11 +91,13 @@ type SymbolData = {
   startPrice: number | null;
   history: SymbolHistoryPoint[];
   name?: string | null;
+  logo?: string | null;
 };
 
 type HoldingValue = {
   symbol: string;
   name?: string | null;
+  logo?: string | null;
   amountInvested: number;
   startPrice: number | null;
   currentPrice: number | null;
@@ -90,11 +109,18 @@ type HoldingValue = {
   history: { time: number; value: number }[];
   allocationIndex?: number;
   id?: string;
+  // Closed positions: set when an allocation has been sold.
+  status?: "open" | "closed";
+  soldDate?: string | null;
+  proceeds?: number | null;
+  realizedChange?: number | null;
+  realizedChangePercent?: number | null;
 };
 
 type InvestorValue = {
   name: string;
   slug: string;
+  originalAmountInvested: number;
   totalInvested: number;
   currentValue: number;
   change: number;
@@ -144,6 +170,70 @@ async function fetchCandle(
   }
 }
 
+const YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/";
+
+type YahooChartResponse = {
+  chart?: {
+    result?: Array<{
+      timestamp?: number[];
+      indicators?: { quote?: Array<{ close?: (number | null)[] }> };
+    }> | null;
+    error?: unknown;
+  };
+};
+
+/**
+ * Yahoo Finance exposes free, keyless daily history. Returns ascending daily
+ * closes within [from, to] (epoch seconds), dropping non-trading null gaps.
+ */
+async function fetchYahooHistory(
+  symbol: string,
+  from: number,
+  to: number,
+): Promise<SymbolHistoryPoint[]> {
+  const url = `${YAHOO_CHART_URL}${encodeURIComponent(
+    symbol,
+  )}?period1=${from}&period2=${to}&interval=1d`;
+  try {
+    const response = await fetch(url, {
+      next: { revalidate: 1800 },
+      headers: { "User-Agent": "Mozilla/5.0 (stock-tracker)" },
+    });
+    if (!response.ok) return [];
+    const data = (await response.json()) as YahooChartResponse;
+    const result = data.chart?.result?.[0];
+    const timestamps = result?.timestamp;
+    const closes = result?.indicators?.quote?.[0]?.close;
+    if (!timestamps?.length || !closes?.length) return [];
+    const points: SymbolHistoryPoint[] = [];
+    timestamps.forEach((time, i) => {
+      const close = closes[i];
+      if (typeof close === "number" && Number.isFinite(close)) {
+        points.push({ time, close });
+      }
+    });
+    return points;
+  } catch (error) {
+    console.error("Yahoo history fetch failed", { symbol, error });
+    return [];
+  }
+}
+
+/**
+ * Daily history with graceful fallback: Yahoo first (free/keyless), then
+ * Finnhub candles (premium-gated on many keys, hence the fallback order).
+ */
+async function fetchHistory(
+  symbol: string,
+  from: number,
+  to: number,
+  apiKey: string,
+): Promise<SymbolHistoryPoint[]> {
+  const yahoo = await fetchYahooHistory(symbol, from, to);
+  if (yahoo.length) return yahoo;
+  return fetchCandle(symbol, from, to, apiKey);
+}
+
 async function fetchProfile(
   symbol: string,
   apiKey: string,
@@ -183,6 +273,22 @@ function normalizeDate(value: unknown): string | undefined {
   return undefined;
 }
 
+/**
+ * Reads a "sold" record from either the nested `sold` object or flat
+ * soldDate/soldAmount/soldShares fields. Returns undefined when nothing
+ * meaningful is present (i.e. the position is still open).
+ */
+function normalizeSold(allocation: AllocationRaw): SoldSeed | undefined {
+  const nested = allocation.sold;
+  const date = normalizeDate(nested?.date ?? allocation.soldDate);
+  const amount = normalizeNumber(
+    nested?.amount ?? nested?.proceeds ?? allocation.soldAmount,
+  );
+  const shares = normalizeNumber(nested?.shares ?? allocation.soldShares);
+  if (!date && amount === undefined && shares === undefined) return undefined;
+  return { date, amount, shares };
+}
+
 async function loadInvestorsFromDb(): Promise<InvestorFile | null> {
   try {
     const client = await clientPromise;
@@ -212,6 +318,7 @@ async function loadInvestorsFromDb(): Promise<InvestorFile | null> {
       .filter((inv) => inv?.name)
       .map((inv) => ({
         name: inv.name as string,
+        originalAmountInvested: normalizeNumber(inv.originalAmountInvested),
         allocations: (inv.allocations ?? [])
           .map((allocation) => {
             const symbol = allocation?.symbol?.toString().trim();
@@ -221,11 +328,13 @@ async function loadInvestorsFromDb(): Promise<InvestorFile | null> {
             );
             const shares = normalizeNumber(allocation.shares);
             const dateInvested = normalizeDate(allocation.dateInvested);
+            const sold = normalizeSold(allocation);
             return {
               symbol,
               invested: invested ?? 0,
               shares: shares ?? undefined,
               dateInvested,
+              sold,
             };
           })
           .filter(Boolean) as InvestorFile["investors"][number]["allocations"],
@@ -281,7 +390,11 @@ export async function GET() {
 
   const grouped = new Map<
     string,
-    { name: string; allocations: InvestorSeed["allocations"] }
+    {
+      name: string;
+      originalAmountInvested?: number;
+      allocations: InvestorSeed["allocations"];
+    }
   >();
 
   const sourceInvestors = investorFile?.investors;
@@ -307,8 +420,11 @@ export async function GET() {
             ? allocation.shares
             : undefined;
 
-        const dateInvested = allocation.dateInvested || fallbackDate;
+        const dateInvested = allocation.dateInvested
+          ? String(allocation.dateInvested)
+          : fallbackDate;
         const id = allocation.id ? String(allocation.id) : undefined;
+        const sold = normalizeSold(allocation);
 
         return {
           symbol,
@@ -317,15 +433,27 @@ export async function GET() {
           dateInvested,
           id,
           allocationIndex: idx,
+          sold,
         };
       })
       .filter(Boolean) as InvestorSeed["allocations"];
 
+    const originalAmountInvested =
+      typeof investor.originalAmountInvested === "number"
+        ? investor.originalAmountInvested
+        : undefined;
+
     if (existing) {
       existing.allocations.push(...mappedAllocations);
+      // Multiple source entries for the same investor: sum their contributions.
+      if (typeof originalAmountInvested === "number") {
+        existing.originalAmountInvested =
+          (existing.originalAmountInvested ?? 0) + originalAmountInvested;
+      }
     } else {
       grouped.set(investor.name, {
         name: investor.name,
+        originalAmountInvested,
         allocations: mappedAllocations,
       });
     }
@@ -359,7 +487,10 @@ export async function GET() {
   const earliestStartMs = investmentTimestamps.length
     ? Math.min(...investmentTimestamps)
     : Date.now();
-  const from = Math.floor(earliestStartMs / 1000);
+  // Background card graph reflects roughly the last month of progress; pull a
+  // little extra (35d) so weekends/holidays still leave ~22 trading points.
+  const monthAgoSec = Math.floor((Date.now() - 35 * 86_400_000) / 1000);
+  const from = Math.max(Math.floor(earliestStartMs / 1000), monthAgoSec);
   const to = Math.floor(Date.now() / 1000);
 
   const symbols = Array.from(
@@ -372,7 +503,7 @@ export async function GET() {
 
   const [quotes, histories, profiles] = await Promise.all([
     Promise.all(symbols.map((symbol) => fetchQuote(symbol, apiKey))),
-    Promise.all(symbols.map((symbol) => fetchCandle(symbol, from, to, apiKey))),
+    Promise.all(symbols.map((symbol) => fetchHistory(symbol, from, to, apiKey))),
     Promise.all(symbols.map((symbol) => fetchProfile(symbol, apiKey))),
   ]);
   console.log("[portfolio] finnhub responses", {
@@ -422,6 +553,7 @@ export async function GET() {
       startPrice,
       history,
       name: profile?.name ?? null,
+      logo: typeof profile?.logo === "string" ? profile.logo : null,
     });
   });
 
@@ -437,7 +569,15 @@ export async function GET() {
 
     const holdings: HoldingValue[] = investor.allocations.map(
       (
-        { symbol, amount, shares: sharesFromFile, dateInvested, id, allocationIndex },
+        {
+          symbol,
+          amount,
+          shares: sharesFromFile,
+          dateInvested,
+          id,
+          allocationIndex,
+          sold,
+        },
         idx,
       ) => {
         const upperSymbol = symbol.toUpperCase();
@@ -447,6 +587,7 @@ export async function GET() {
           return {
             symbol: upperSymbol,
             name: upperSymbol,
+            logo: null,
             amountInvested: amount,
             startPrice: null,
             currentPrice: null,
@@ -475,10 +616,78 @@ export async function GET() {
               ? amount / startPrice
               : null;
 
+        // Closed position: value the holding from purchase up to the sale date,
+        // realize the proceeds, then drop out of current totals/graphs.
+        if (sold?.date) {
+          const soldTs = Math.floor(new Date(sold.date).getTime() / 1000);
+          const usableShares = shares && shares > 0 ? shares : null;
+          const soldShares =
+            sold.shares && sold.shares > 0 ? sold.shares : usableShares;
+          const sellPrice =
+            getStartPriceForDate(data.history, soldTs) ??
+            data.currentPrice ??
+            startPrice ??
+            null;
+          const proceeds =
+            typeof sold.amount === "number" && sold.amount > 0
+              ? sold.amount
+              : soldShares && sellPrice && sellPrice > 0
+                ? soldShares * sellPrice
+                : null;
+          // Prorate the cost basis to the shares actually sold (full sale → amount).
+          const costBasis =
+            usableShares && soldShares
+              ? amount * Math.min(1, soldShares / usableShares)
+              : amount;
+          const realizedChange = proceeds != null ? proceeds - costBasis : null;
+          const realizedChangePercent =
+            realizedChange != null && costBasis > 0
+              ? (realizedChange / costBasis) * 100
+              : null;
+
+          const historyValues = usableShares
+            ? data.history
+                .filter(
+                  (point) =>
+                    point.time >= allocationStartTs && point.time <= soldTs,
+                )
+                .map((point) => ({
+                  time: point.time,
+                  value: point.close * (soldShares ?? usableShares),
+                }))
+            : [];
+          if (proceeds != null) {
+            historyValues.push({ time: soldTs, value: proceeds });
+          }
+
+          return {
+            symbol: upperSymbol,
+            name: data.name ?? upperSymbol,
+            logo: data.logo ?? null,
+            amountInvested: amount,
+            startPrice: startPrice ?? null,
+            currentPrice: data.currentPrice,
+            shares: usableShares,
+            currentValue: 0,
+            change: realizedChange,
+            changePercent: realizedChangePercent,
+            dateInvested,
+            history: historyValues,
+            allocationIndex: allocationIndex ?? idx,
+            id,
+            status: "closed",
+            soldDate: sold.date ?? null,
+            proceeds,
+            realizedChange,
+            realizedChangePercent,
+          };
+        }
+
         if (!shares || shares <= 0) {
           return {
             symbol: upperSymbol,
             name: data.name ?? upperSymbol,
+            logo: data.logo ?? null,
             amountInvested: amount,
             startPrice: startPrice ?? null,
             currentPrice: data.currentPrice,
@@ -498,14 +707,22 @@ export async function GET() {
         const change = currentValue - amount;
         const changePercent = (change / amount) * 100;
 
-        const historyValues = data.history.map((point) => ({
-          time: point.time,
-          value: point.close * shares,
-        }));
+        // Only count the holding from its purchase date onward, then anchor
+        // the final point to the live current value.
+        const historyValues = data.history
+          .filter((point) => point.time >= allocationStartTs)
+          .map((point) => ({
+            time: point.time,
+            value: point.close * shares,
+          }));
+        if (currentValue > 0) {
+          historyValues.push({ time: to, value: currentValue });
+        }
 
         return {
           symbol: upperSymbol,
           name: data.name ?? upperSymbol,
+          logo: data.logo ?? null,
           amountInvested: amount,
           startPrice,
           currentPrice,
@@ -550,6 +767,9 @@ export async function GET() {
     return {
       name: investor.name,
       slug: slugify(investor.name),
+      // Real external cash contributed; falls back to the rotated invested
+      // total when not explicitly recorded.
+      originalAmountInvested: investor.originalAmountInvested ?? totalInvested,
       totalInvested,
       currentValue,
       change,

@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #05060f;
+  --foreground: #e8ecf8;
 }
 
 @theme inline {
@@ -12,23 +12,97 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+html {
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
+  /* clip (not hidden) so overflow-y stays "visible" and body doesn't become a
+     nested scroll container, which otherwise adds extra scrollable height. */
+  overflow-x: clip;
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI",
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Ambient app backdrop: layered radial glows over deep space slate. */
+.app-backdrop {
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(60rem 60rem at 12% -10%, rgba(34, 211, 238, 0.16), transparent 55%),
+    radial-gradient(50rem 50rem at 100% 0%, rgba(217, 70, 239, 0.14), transparent 50%),
+    radial-gradient(70rem 70rem at 50% 120%, rgba(99, 102, 241, 0.18), transparent 55%),
+    linear-gradient(180deg, #05060f 0%, #070a1c 45%, #04050d 100%);
+}
+
+.app-backdrop::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+}
+
+/* Slow drifting aurora glows for a premium, living backdrop. Fixed so the
+   negative inset never inflates the document's scroll height. */
+.app-backdrop::after {
+  content: "";
+  position: fixed;
+  inset: -20%;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(38rem 38rem at 18% 28%, rgba(34, 211, 238, 0.1), transparent 60%),
+    radial-gradient(34rem 34rem at 82% 72%, rgba(217, 70, 239, 0.1), transparent 60%);
+  animation: aurora-drift 26s ease-in-out infinite alternate;
+}
+
+@keyframes aurora-drift {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    transform: translate3d(2%, -3%, 0) scale(1.08);
+  }
+}
+
+/* Glass surface used across cards and panels. */
+.glass {
+  background: linear-gradient(
+    160deg,
+    rgba(255, 255, 255, 0.06),
+    rgba(255, 255, 255, 0.02) 40%,
+    rgba(8, 11, 26, 0.55)
+  );
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.gradient-text {
+  background: linear-gradient(100deg, #67e8f9, #e879f9 55%, #818cf8);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.text-balance {
+  text-wrap: balance;
 }
 
 @keyframes fade-in-up {
   from {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(14px);
   }
   to {
     opacity: 1;
@@ -37,5 +111,240 @@ body {
 }
 
 .animate-fade-in-up {
-  animation: fade-in-up 0.5s ease-out forwards;
+  animation: fade-in-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+@keyframes shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: rgba(148, 163, 184, 0.08);
+}
+
+.skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(148, 163, 184, 0.16),
+    transparent
+  );
+  animation: shimmer 1.6s infinite;
+}
+
+/* Hide scrollbars on horizontal helpers without losing scroll. */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* ---- Animated company logos ---- */
+@keyframes spin-slow {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes logo-pop {
+  0% {
+    opacity: 0;
+    transform: scale(0.5) rotate(-14deg);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.09) rotate(3deg);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes logo-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+
+.company-logo {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  border-radius: 0.8rem;
+  animation: logo-pop 0.55s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  transition: transform 0.25s ease;
+}
+.company-logo:hover {
+  transform: scale(1.12);
+}
+
+/* Wrapper that carries the continuous bob, so the whole chip + ring move
+   together as a unit (the image never slides out of its own frame). */
+.company-logo__bob {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  animation: logo-float 4.5s ease-in-out infinite;
+}
+
+.company-logo__ring {
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  background: conic-gradient(
+    from 0deg,
+    #22d3ee,
+    #a855f7,
+    #6366f1,
+    #f0abfc,
+    #22d3ee
+  );
+  filter: blur(5px);
+  opacity: 0.4;
+  z-index: 0;
+  animation: spin-slow 7s linear infinite;
+}
+.company-logo:hover .company-logo__ring {
+  opacity: 0.75;
+}
+
+.company-logo__inner {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
+}
+.company-logo__inner--img {
+  background: #ffffff;
+}
+.company-logo__img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.company-logo__mono {
+  background: linear-gradient(135deg, #22d3ee, #a855f7 60%, #6366f1);
+  color: #050616;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  text-transform: uppercase;
+}
+
+/* Gentle reveal for portfolio graph lines (reliable across re-renders). */
+@keyframes spark-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.spark-line {
+  opacity: 0;
+  animation: spark-fade 0.7s ease-out forwards;
+}
+
+/* EKG-style pulse: a round glowing ball that sweeps along the line (positioned
+   + animated from JS so it stays circular under the SVG's non-uniform stretch). */
+.spark-pulse {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 9px;
+  height: 9px;
+  margin: -4.5px 0 0 -4.5px;
+  border-radius: 9999px;
+  background: #ffffff;
+  box-shadow:
+    0 0 4px 1px var(--c, #34d399),
+    0 0 9px 2px var(--c, #34d399),
+    0 0 15px 4px var(--c, #34d399);
+  opacity: 0;
+  pointer-events: none;
+  will-change: left, top, opacity;
+}
+
+/* Live data heartbeat dot. */
+@keyframes live-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55);
+  }
+  70% {
+    box-shadow: 0 0 0 6px rgba(52, 211, 153, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0);
+  }
+}
+.live-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: #34d399;
+  animation: live-pulse 2.2s ease-out infinite;
+}
+
+/* Faster amber pulse while data is loading (must follow .live-dot to win). */
+@keyframes live-pulse-loading {
+  0% {
+    box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.6);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(251, 191, 36, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(251, 191, 36, 0);
+  }
+}
+.live-dot.live-dot--loading {
+  background: #fbbf24;
+  animation: live-pulse-loading 1s ease-out infinite;
+}
+.live-dot.live-dot--error {
+  background: #fb7185;
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-fade-in-up,
+  .skeleton::after,
+  .company-logo,
+  .company-logo__ring,
+  .company-logo__bob,
+  .live-dot,
+  .app-backdrop::after {
+    animation: none;
+  }
+  .spark-line {
+    animation: none;
+    opacity: 1;
+  }
+  * {
+    scroll-behavior: auto !important;
+  }
 }

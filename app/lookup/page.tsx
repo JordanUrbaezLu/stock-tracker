@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import { CompanyLogo } from "../CompanyLogo";
 
 type Quote = {
   symbol: string;
@@ -140,7 +141,7 @@ function HistoryChart({ history }: { history: HistoryPoint[] }) {
           Starting {startLabel || "—"}
         </p>
       </div>
-      <div className="relative z-30 overflow-visible rounded-2xl border border-cyan-500/20 bg-slate-950/60 p-3">
+      <div className="relative z-30 overflow-visible rounded-2xl border border-white/8 bg-slate-950/50 p-3">
         <svg
           viewBox={`0 0 ${width} ${height}`}
           role="img"
@@ -260,7 +261,7 @@ function HistoryChart({ history }: { history: HistoryPoint[] }) {
         </svg>
         {hover && (
           <div
-            className="pointer-events-none absolute z-20 rounded-lg border border-cyan-500/40 bg-slate-900/90 px-3 py-2 text-sm text-slate-100 shadow-lg"
+            className="pointer-events-none absolute z-20 rounded-lg border border-cyan-400/40 bg-slate-900/95 px-3 py-2 text-sm text-slate-100 shadow-lg backdrop-blur"
             style={{
               left: "50%",
               top: 10,
@@ -430,29 +431,33 @@ export default function LookupPage() {
   const trendLabel = isMobile ? "6-month trend" : "1-year trend";
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-indigo-950 to-black text-slate-100">
-      <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-8 px-5 py-12 sm:px-8">
-        <header className="space-y-2">
-          <div className="flex items-center justify-between">
+    <div className="app-backdrop min-h-screen text-slate-100">
+      <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 px-4 py-8 sm:px-6 sm:py-10">
+        <header className="glass sticky top-3 z-30 rounded-2xl px-4 py-3 shadow-xl shadow-black/30 sm:px-5">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <span className="grid h-9 w-9 place-items-center rounded-xl bg-linear-to-br from-cyan-400 via-fuchsia-500 to-indigo-500 text-base">
+                🔍
+              </span>
+              <div className="leading-tight">
+                <p className="gradient-text text-base font-bold tracking-tight">
+                  Ticker lookup
+                </p>
+                <p className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
+                  Live quotes &amp; trends
+                </p>
+              </div>
+            </div>
             <Link
               href="/"
-              className="text-xs font-semibold text-cyan-200 underline-offset-4 hover:underline"
+              className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-sm font-semibold text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white"
             >
-              ← Back to summary
+              ← Back
             </Link>
           </div>
-          <p className="text-sm uppercase tracking-[0.3em] text-cyan-300">
-            Ticker lookup
-          </p>
-          <h1 className="text-3xl font-semibold text-white">
-            Check a stock&apos;s latest price
-          </h1>
-          <p className="text-sm text-slate-400">
-            Enter a symbol like AAPL, MSFT, or TSLA to fetch the current quote.
-          </p>
         </header>
 
-        <section className="rounded-2xl border border-cyan-500/20 bg-slate-900/70 p-4 sm:p-6 shadow-lg shadow-cyan-500/20">
+        <section className="glass rounded-3xl p-4 shadow-2xl shadow-black/30 sm:p-6">
           <form
             onSubmit={handleSubmit}
             className="flex flex-col gap-2 sm:flex-row sm:gap-3"
@@ -466,18 +471,18 @@ export default function LookupPage() {
               value={ticker}
               onChange={(e) => setTicker(e.target.value)}
               placeholder="AAPL"
-              className="h-12 flex-1 rounded-xl border border-slate-800 bg-slate-950 p-3 text-lg uppercase tracking-wide text-slate-100 outline-none ring-2 ring-transparent transition focus:border-cyan-500 focus:ring-cyan-900"
+              className="h-12 flex-1 rounded-xl border border-white/10 bg-slate-950/60 p-3 text-lg uppercase tracking-wide text-slate-100 outline-none transition focus:border-cyan-400"
             />
             <button
               type="submit"
               disabled={loading}
-              className="h-12 rounded-xl bg-cyan-500 px-4 sm:px-6 text-base font-semibold text-cyan-950 transition hover:bg-cyan-400 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 disabled:cursor-not-allowed disabled:bg-cyan-700/60 cursor-pointer"
+              className="h-12 cursor-pointer rounded-xl bg-linear-to-r from-cyan-500 to-fuchsia-500 px-5 text-base font-semibold text-white shadow-lg shadow-cyan-500/20 transition hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 disabled:cursor-not-allowed disabled:opacity-50 sm:px-6"
             >
               {loading ? "Fetching..." : "Get price"}
             </button>
           </form>
 
-          <div className="mt-3 space-y-2 text-sm text-slate-400">
+          <div className="mt-4 space-y-2 text-sm text-slate-400">
             <div className="flex items-center justify-between">
               <p className="text-xs uppercase tracking-[0.25em] text-slate-500">
                 Suggestions
@@ -494,7 +499,7 @@ export default function LookupPage() {
                     setTicker(symbol);
                     void handleSubmit(undefined, symbol);
                   }}
-                  className="cursor-pointer rounded-full border border-cyan-500/30 bg-slate-900 px-3 py-1 text-xs text-cyan-100 transition hover:border-cyan-300"
+                  className="cursor-pointer rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white"
                 >
                   {res.symbol} · {res.description}
                 </button>
@@ -508,7 +513,7 @@ export default function LookupPage() {
             )}
           </div>
 
-          <div className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/60 p-5">
+          <div className="mt-6 rounded-2xl border border-white/8 bg-white/2 p-5">
             {!quote && !error && !loading && (
               <p className="text-slate-400">
                 Search for a ticker to see the latest price.
@@ -529,17 +534,24 @@ export default function LookupPage() {
 
             {quote && (
               <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-1">
-                    <p className="text-sm uppercase tracking-[0.35em] text-slate-400">
-                      {quote.symbol}
-                    </p>
-                    {quote.name && (
-                      <p className="text-sm text-slate-300">{quote.name}</p>
-                    )}
-                    <p className="text-3xl font-semibold">
-                      ${quote.price.toFixed(2)}
-                    </p>
+                <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <CompanyLogo
+                      symbol={quote.symbol}
+                      name={quote.name}
+                      size={48}
+                    />
+                    <div className="space-y-0.5">
+                      <p className="text-xs uppercase tracking-[0.3em] text-cyan-200">
+                        {quote.symbol}
+                      </p>
+                      {quote.name && (
+                        <p className="text-sm text-slate-300">{quote.name}</p>
+                      )}
+                      <p className="text-3xl font-bold tracking-tight text-white">
+                        ${quote.price.toFixed(2)}
+                      </p>
+                    </div>
                   </div>
                   <div className={`text-right text-lg font-semibold ${changeColor}`}>
                     <p>
@@ -550,53 +562,38 @@ export default function LookupPage() {
                       {quote.changePercent}
                     </p>
                     <p className="text-xs font-normal text-slate-500">
-                      Change vs previous close (daily)
+                      vs previous close
                     </p>
                   </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3 text-sm text-slate-400 sm:grid-cols-3">
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-slate-500">
-                      Open
-                    </p>
-                    <p>{quote.open ? `$${quote.open.toFixed(2)}` : "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-slate-500">
-                      High
-                    </p>
-                    <p>{quote.high ? `$${quote.high.toFixed(2)}` : "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-slate-500">
-                      Low
-                    </p>
-                    <p>{quote.low ? `$${quote.low.toFixed(2)}` : "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-slate-500">
-                      Prev close
-                    </p>
-                    <p>
-                      {quote.previousClose
+                <div className="grid grid-cols-2 gap-2.5 text-sm sm:grid-cols-3">
+                  {[
+                    { label: "Open", value: quote.open ? `$${quote.open.toFixed(2)}` : "—" },
+                    { label: "High", value: quote.high ? `$${quote.high.toFixed(2)}` : "—" },
+                    { label: "Low", value: quote.low ? `$${quote.low.toFixed(2)}` : "—" },
+                    {
+                      label: "Prev close",
+                      value: quote.previousClose
                         ? `$${quote.previousClose.toFixed(2)}`
-                        : "—"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-slate-500">
-                      Currency
-                    </p>
-                    <p>{quote.currency ?? "—"}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs uppercase tracking-wide text-slate-500">
-                      Exchange
-                    </p>
-                    <p>{quote.exchange ?? "—"}</p>
-                  </div>
+                        : "—",
+                    },
+                    { label: "Currency", value: quote.currency ?? "—" },
+                    { label: "Exchange", value: quote.exchange ?? "—" },
+                  ].map((stat) => (
+                    <div
+                      key={stat.label}
+                      className="rounded-xl border border-white/5 bg-white/3 px-3 py-2"
+                    >
+                      <p className="text-[10px] uppercase tracking-wider text-slate-500">
+                        {stat.label}
+                      </p>
+                      <p className="mt-0.5 font-semibold text-slate-100">
+                        {stat.value}
+                      </p>
+                    </div>
+                  ))}
                 </div>
-                <div className="rounded-2xl border border-cyan-500/20 bg-slate-900/60 p-4">
+                <div className="rounded-2xl border border-white/8 bg-white/2 p-4">
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-semibold text-slate-100">
                       {trendLabel}
