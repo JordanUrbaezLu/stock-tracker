@@ -210,17 +210,19 @@ export function Sparkline({
     (clean[clean.length - 1].time - clean[0].time) / 86_400 || 0;
 
   return (
-    <div className={className}>
-      <div className="flex">
+    // With `fill`, stretch to the parent's height: the chart row grows and the
+    // SVG (height 100%) follows, while the date axis stays pinned to the bottom.
+    <div className={`${fill ? "flex h-full flex-col " : ""}${className ?? ""}`}>
+      <div className={fill ? "flex min-h-0 flex-1" : "flex"}>
         {/* Y axis: amount range */}
         <div
           className="flex flex-col justify-between pr-1.5 text-right text-[9px] font-medium tabular-nums text-slate-500"
-          style={{ height }}
+          style={fill ? undefined : { height }}
         >
           <span>{compactMoney(max)}</span>
           <span>{compactMoney(min)}</span>
         </div>
-        <div className="relative flex-1" style={{ height }}>
+        <div className="relative flex-1" style={fill ? undefined : { height }}>
           {chart}
           {pulse}
         </div>

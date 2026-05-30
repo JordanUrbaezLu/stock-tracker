@@ -752,17 +752,37 @@ export async function GET() {
       ? (change / totalInvested) * 100
       : 0;
 
-    const timeline = new Map<number, number>();
-    holdings.forEach((holding) => {
-      holding.history.forEach((point) => {
-        const next = (timeline.get(point.time) ?? 0) + point.value;
-        timeline.set(point.time, next);
-      });
-    });
+    // Forward-filled aggregate. At each timestamp we sum every holding's
+    // last-known value (0 before it was bought / after it was sold), instead
+    // of only the holdings that happen to have a point at that exact instant.
+    // Without this, an off-grid point — e.g. a sale recorded at its precise
+    // sale timestamp — is the only holding present at that timestamp, so the
+    // summed total craters to that single value and the line shows a fake dip.
+    const series = holdings
+      .map((holding) => [...holding.history].sort((a, b) => a.time - b.time))
+      .filter((points) => points.length > 0);
+    const allTimes = Array.from(
+      new Set(series.flatMap((points) => points.map((p) => p.time))),
+    ).sort((a, b) => a - b);
 
-    const valueHistory = Array.from(timeline.entries())
-      .sort((a, b) => a[0] - b[0])
-      .map(([time, value]) => ({ time, value }));
+    const valueHistory = allTimes.map((time) => {
+      let value = 0;
+      for (const points of series) {
+        // Only counts while the holding was actually held.
+        if (time < points[0].time || time > points[points.length - 1].time) {
+          continue;
+        }
+        let lastValue = 0;
+        for (let i = points.length - 1; i >= 0; i--) {
+          if (points[i].time <= time) {
+            lastValue = points[i].value;
+            break;
+          }
+        }
+        value += lastValue;
+      }
+      return { time, value };
+    });
 
     return {
       name: investor.name,
