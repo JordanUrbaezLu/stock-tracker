@@ -190,6 +190,14 @@ body {
   animation: logo-pop 0.55s cubic-bezier(0.22, 1, 0.36, 1) backwards;
   transition: transform 0.25s ease;
 }
+button.company-logo {
+  border: none;
+  padding: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
 .company-logo:hover {
   transform: scale(1.12);
 }

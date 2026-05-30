@@ -159,6 +159,7 @@ export function HoldingsList({
                     logo={holding.logo}
                     size={44}
                     delay={idx * 60}
+                    linkToLookup
                   />
                   <div>
                     <div className="flex items-center gap-2">
@@ -171,7 +172,7 @@ export function HoldingsList({
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-400">
+                    <p className="truncate text-xs text-slate-400">
                       {holding.name || "—"}
                     </p>
                     {investedDate && (

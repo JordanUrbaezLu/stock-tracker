@@ -1,7 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import {
+  FormEvent,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { CompanyLogo } from "../CompanyLogo";
 
 type Quote = {
@@ -296,8 +305,24 @@ function HistoryChart({ history }: { history: HistoryPoint[] }) {
   );
 }
 
-export default function LookupPage() {
-  const [ticker, setTicker] = useState("AAPL");
+function sanitizeSymbol(raw: string) {
+  return raw
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, "")
+    .replace(/[^A-Z0-9.\-]/g, "");
+}
+
+function LookupContent() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const lastLoaded = useRef<string | null>(null);
+
+  const urlSymbol = sanitizeSymbol(
+    searchParams.get("symbol") ?? searchParams.get("ticker") ?? "",
+  );
+
+  const [ticker, setTicker] = useState(urlSymbol || "AAPL");
   const [quote, setQuote] = useState<Quote | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -308,59 +333,94 @@ export default function LookupPage() {
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState<boolean | null>(null);
 
-  const sanitizeSymbol = (raw: string) =>
-    raw
-      .trim()
-      .toUpperCase()
-      .replace(/\s+/g, "")
-      .replace(/[^A-Z0-9.\-]/g, "");
+  const fetchHistory = useCallback(async (symbol: string) => {
+    setHistoryLoading(true);
+    setHistoryError(null);
+    setHistory(null);
+    try {
+      const res = await fetch(`/api/history?symbol=${encodeURIComponent(symbol)}`);
+      const data = (await res.json()) as { history?: HistoryPoint[]; error?: string };
+      if (!res.ok || !data.history) {
+        const message =
+          data.error || `No history found for ${symbol.toUpperCase()}.`;
+        throw new Error(message);
+      }
+      const sorted = [...data.history].sort((a, b) => a.time - b.time);
+      setHistory(sorted);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not load history.";
+      setHistoryError(message);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  const loadQuote = useCallback(
+    async (rawSymbol: string, syncUrl = false) => {
+      const symbol = sanitizeSymbol(rawSymbol);
+
+      if (!symbol) {
+        setError("Enter a ticker symbol to look up.");
+        setQuote(null);
+        return;
+      }
+
+      lastLoaded.current = symbol;
+      setTicker(symbol);
+      if (syncUrl) {
+        router.replace(`/lookup?symbol=${encodeURIComponent(symbol)}`, {
+          scroll: false,
+        });
+      }
+
+      setLoading(true);
+      setError(null);
+      setQuote(null);
+      setHistory(null);
+      setHistoryError(null);
+
+      try {
+        const response = await fetch(`/api/quote?symbol=${symbol}`);
+        const data = await response.json();
+
+        if (!response.ok) {
+          const fallbackMessage = "Could not fetch quote.";
+          const notFoundMessage = `No data found for ${symbol}. Check the ticker and try again.`;
+          const message =
+            response.status === 404
+              ? notFoundMessage
+              : typeof data.error === "string"
+                ? data.error
+                : fallbackMessage;
+          throw new Error(message);
+        }
+
+        setQuote(data as Quote);
+        void fetchHistory(symbol);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Something went wrong.";
+        setError(message);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [fetchHistory, router],
+  );
 
   const handleSubmit = async (
     event?: FormEvent<HTMLFormElement>,
     overrideSymbol?: string,
   ) => {
     event?.preventDefault();
-    const symbol = sanitizeSymbol(overrideSymbol ?? ticker);
-
-    if (!symbol) {
-      setError("Enter a ticker symbol to look up.");
-      setQuote(null);
-      return;
-    }
-
-    setLoading(true);
-    setError(null);
-    setQuote(null);
-    setHistory(null);
-    setHistoryError(null);
-
-    try {
-      const response = await fetch(`/api/quote?symbol=${symbol}`);
-      const data = await response.json();
-
-      if (!response.ok) {
-        const fallbackMessage = "Could not fetch quote.";
-        const notFoundMessage = `No data found for ${symbol}. Check the ticker and try again.`;
-        const message =
-          response.status === 404
-            ? notFoundMessage
-            : typeof data.error === "string"
-              ? data.error
-              : fallbackMessage;
-        throw new Error(message);
-      }
-
-      const parsedQuote = data as Quote;
-      setQuote(parsedQuote);
-      void fetchHistory(symbol);
-    } catch (err) {
-      const message =
-        err instanceof Error ? err.message : "Something went wrong.";
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
+    await loadQuote(overrideSymbol ?? ticker, true);
   };
+
+  // Auto-search when arriving via ?symbol= or ?ticker= (e.g. logo click).
+  useEffect(() => {
+    if (!urlSymbol || urlSymbol === lastLoaded.current) return;
+    void loadQuote(urlSymbol);
+  }, [urlSymbol, loadQuote]);
 
   const changeColor =
     quote && quote.change !== 0
@@ -397,29 +457,6 @@ export default function LookupPage() {
   }, [ticker]);
 
   const topSuggestion = useMemo(() => results[0]?.symbol ?? "", [results]);
-
-  const fetchHistory = async (symbol: string) => {
-    setHistoryLoading(true);
-    setHistoryError(null);
-    setHistory(null);
-    try {
-      const res = await fetch(`/api/history?symbol=${encodeURIComponent(symbol)}`);
-      const data = (await res.json()) as { history?: HistoryPoint[]; error?: string };
-      if (!res.ok || !data.history) {
-        const message =
-          data.error || `No history found for ${symbol.toUpperCase()}.`;
-        throw new Error(message);
-      }
-      // Normalize and ensure sorted
-      const sorted = [...data.history].sort((a, b) => a.time - b.time);
-      setHistory(sorted);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Could not load history.";
-      setHistoryError(message);
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
 
   useEffect(() => {
     const check = () => setIsMobile(typeof window !== "undefined" && window.innerWidth < 640);
@@ -629,5 +666,19 @@ export default function LookupPage() {
         </section>
       </main>
     </div>
+  );
+}
+
+export default function LookupPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="app-backdrop flex min-h-screen items-center justify-center text-slate-400">
+          Loading lookup…
+        </div>
+      }
+    >
+      <LookupContent />
+    </Suspense>
   );
 }

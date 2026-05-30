@@ -81,7 +81,7 @@ export function Sparkline({
     const mx = Math.max(...vals);
     const rng = mx - mn || 1;
     const usable = height - PAD * 2;
-    const duration = 3125; // a pulse sweeps roughly every ~3.1s (25% slower)
+    const duration = 3594; // ~3.6s per pulse (15% slower than prior)
     const sweep = 0.4; // ~1s of travel, then it rests at the tip and fades
     const fadeEnd = 0.54;
 

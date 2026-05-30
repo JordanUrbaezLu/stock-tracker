@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode, PointerEvent as ReactPointerEvent } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
@@ -8,6 +8,7 @@ import { useAdmin } from "./AdminContext";
 import { Sparkline } from "./Sparkline";
 import { CompanyLogo } from "./CompanyLogo";
 import { AnimatedNumber } from "./AnimatedNumber";
+import { Carousel } from "./Carousel";
 import { celebrate } from "./confetti";
 
 const MotionLink = motion.create(Link);
@@ -64,92 +65,6 @@ type PortfolioResponse = {
   investors: InvestorValue[];
   symbols: string[];
 };
-
-/**
- * Trackpad two-finger horizontal swipe → step a carousel. Wheel events are
- * attached non-passively so we can preventDefault (stops browser back-swipe).
- * A single flick (plus its inertial momentum) advances exactly one step: we
- * only re-arm after the trackpad has been idle briefly.
- *
- * Returns a callback ref. Tracking the node via state (rather than a ref object)
- * means the listener always rebinds when the element mounts/remounts — which the
- * inline investor carousel does during the loading→loaded transition.
- */
-function useWheelStep(
-  enabled: boolean,
-  step: (dir: number) => void,
-): (node: HTMLElement | null) => void {
-  const stepRef = useRef(step);
-  stepRef.current = step;
-  const [node, setNode] = useState<HTMLElement | null>(null);
-
-  useEffect(() => {
-    if (!node || !enabled) return;
-
-    let acc = 0;
-    let armed = true;
-    // After a step fires, the gesture must first "settle" (momentum decays
-    // below settleLow) and only then can a fresh rising edge re-arm it. This
-    // makes one flick — however big — fire exactly once: its acceleration ramp
-    // and peak are ignored while unsettled, and its decaying tail never rises.
-    let settled = true;
-    let minSinceSettle = Infinity;
-    let idle: ReturnType<typeof setTimeout> | null = null;
-    const threshold = 50;
-    const settleLow = 8; // momentum considered died down below this
-    const rearmFloor = 14; // a new push must exceed this absolute speed
-    const rearmRise = 16; // ...and climb this much above the settled low
-
-    const onWheel = (e: WheelEvent) => {
-      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
-      e.preventDefault();
-      const ax = Math.abs(e.deltaX);
-
-      if (!armed) {
-        if (!settled) {
-          if (ax < settleLow) {
-            settled = true;
-            minSinceSettle = ax;
-          }
-        } else {
-          minSinceSettle = Math.min(minSinceSettle, ax);
-          if (ax > rearmFloor && ax > minSinceSettle + rearmRise) {
-            armed = true;
-            acc = 0;
-          }
-        }
-      }
-
-      // Fallback: fully reset once events stop entirely.
-      if (idle) clearTimeout(idle);
-      idle = setTimeout(() => {
-        acc = 0;
-        armed = true;
-        settled = true;
-        minSinceSettle = Infinity;
-      }, 200);
-
-      if (!armed) return;
-      acc += e.deltaX;
-      if (Math.abs(acc) >= threshold) {
-        const dir = acc > 0 ? 1 : -1;
-        acc = 0;
-        armed = false;
-        settled = false;
-        minSinceSettle = Infinity;
-        stepRef.current(dir);
-      }
-    };
-
-    node.addEventListener("wheel", onWheel, { passive: false });
-    return () => {
-      node.removeEventListener("wheel", onWheel);
-      if (idle) clearTimeout(idle);
-    };
-  }, [node, enabled]);
-
-  return useCallback((n: HTMLElement | null) => setNode(n), []);
-}
 
 function Modal({
   open,
@@ -352,8 +267,9 @@ function HoldingRow({
           logo={holding.logo}
           size={38}
           delay={index * 70}
+          linkToLookup
         />
-        <div className="min-w-0">
+        <div className="min-w-0 max-w-[5.5rem] sm:max-w-[7rem]">
           <div className="flex items-center gap-1.5">
             <p className="truncate text-sm font-semibold text-white">
               {holding.symbol}
@@ -709,15 +625,16 @@ function TopStocksSlide({ investors }: { investors: InvestorValue[] }) {
                     logo={row.logo}
                     size={30}
                     delay={idx * 70}
+                    linkToLookup
                   />
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-white">
-                      {row.symbol}
-                    </p>
-                    <p className="truncate text-[11px] text-slate-400">
-                      {row.investorName}
-                    </p>
-                  </div>
+                        <div className="min-w-0 max-w-[5.5rem] sm:max-w-[7rem]">
+                          <p className="truncate text-sm font-semibold text-white">
+                            {row.symbol}
+                          </p>
+                          <p className="truncate text-[11px] text-slate-400">
+                            {row.investorName}
+                          </p>
+                        </div>
                 </div>
                 <span className={`shrink-0 text-sm font-bold ${tone.text}`}>
                   {formatPercent(row.changePercent)}
@@ -746,84 +663,74 @@ function HeroCarousel({
   groupHistory: HistoryPoint[];
   count: number;
 }) {
-  const [index, setIndex] = useState(0);
-  const ref = useRef<HTMLDivElement>(null);
-  const drag = useRef({ startX: 0, active: false, moved: false, width: 1 });
-  const [delta, setDelta] = useState(0);
-  const [dragging, setDragging] = useState(false);
-
-  // Overview is slide 0; the leaderboards + top-stocks board only matter with
-  // more than one investor.
-  const slides = count > 1 ? 1 + LEADERBOARDS.length + 1 : 1;
+  const multi = count > 1;
   const leader = [...investors].sort((a, b) => returnPct(b) - returnPct(a))[0];
 
-  const goTo = useCallback(
-    (i: number) => setIndex(Math.max(0, Math.min(i, slides - 1))),
-    [slides],
+  const overview = (
+    <div>
+      <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
+        Group portfolio · {count} {count === 1 ? "investor" : "investors"}
+      </p>
+      <div className="mt-1 flex min-w-0 flex-nowrap items-center gap-2 sm:gap-3">
+        <AnimatedNumber
+          value={groupCurrent}
+          format={formatCurrency}
+          className="shrink min-w-0 text-2xl font-bold tracking-tight text-white sm:text-3xl"
+        />
+        <div className="flex shrink-0 items-center gap-1.5">
+          <span
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold ring-1 sm:px-2.5 sm:text-sm ${
+              toneClasses(groupGain).pill
+            }`}
+          >
+            {changeArrow(groupGain)} {formatPercent(groupGainPct)}
+          </span>
+          <span
+            className={`whitespace-nowrap text-xs font-medium sm:text-sm ${toneClasses(groupGain).text}`}
+          >
+            {groupGain >= 0 ? "+" : "−"}
+            {formatCurrency(Math.abs(groupGain))}
+          </span>
+        </div>
+        {leader && multi && (
+          <div className="ml-auto flex shrink-0 items-center gap-1.5 rounded-full border border-amber-400/25 bg-amber-400/10 px-2 py-1 sm:gap-2 sm:px-2.5">
+            <span className="text-xs" aria-hidden>
+              🥇
+            </span>
+            <span className="max-w-10 truncate text-xs font-semibold text-amber-100 sm:max-w-14 sm:text-sm md:max-w-20">
+              {leader.name}
+            </span>
+            <span className="whitespace-nowrap text-[11px] font-semibold text-amber-200/90 sm:text-xs">
+              {formatPercent(returnPct(leader))}
+            </span>
+          </div>
+        )}
+      </div>
+      {groupHistory.length > 1 && (
+        <div className="relative mt-3">
+          <Sparkline
+            points={groupHistory}
+            positive={groupGain >= 0}
+            height={58}
+            strokeWidth={2}
+            showAxes
+            className="w-full"
+          />
+        </div>
+      )}
+    </div>
   );
 
-  useEffect(() => {
-    setIndex((p) => Math.min(p, slides - 1));
-  }, [slides]);
-
-  const setWheelNode = useWheelStep(slides > 1, (dir) =>
-    setIndex((p) => Math.max(0, Math.min(p + dir, slides - 1))),
-  );
-  const setViewport = useCallback(
-    (node: HTMLDivElement | null) => {
-      ref.current = node;
-      setWheelNode(node);
-    },
-    [setWheelNode],
-  );
-
-  const onDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (slides <= 1) return;
-    drag.current = {
-      startX: e.clientX,
-      active: true,
-      moved: false,
-      width: ref.current?.offsetWidth ?? 1,
-    };
-    setDragging(true);
-  };
-  const onMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (!drag.current.active) return;
-    const d = e.clientX - drag.current.startX;
-    if (Math.abs(d) > 6 && !drag.current.moved) {
-      drag.current.moved = true;
-      try {
-        e.currentTarget.setPointerCapture(e.pointerId);
-      } catch {
-        /* ignore */
-      }
-    }
-    const atStart = index === 0 && d > 0;
-    const atEnd = index === slides - 1 && d < 0;
-    setDelta(atStart || atEnd ? d * 0.35 : d);
-  };
-  const onUp = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (!drag.current.active) return;
-    const d = e.clientX - drag.current.startX;
-    drag.current.active = false;
-    setDragging(false);
-    setDelta(0);
-    const threshold = Math.min(120, drag.current.width * 0.22);
-    if (d <= -threshold) goTo(index + 1);
-    else if (d >= threshold) goTo(index - 1);
-  };
-  const onClickCapture = (e: React.MouseEvent) => {
-    if (drag.current.moved) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-  };
-
-  const labels = [
-    "Overview",
-    ...LEADERBOARDS.map((b) => b.title),
-    "Top Stocks",
-  ].slice(0, slides);
+  const slides: ReactNode[] = [overview];
+  const labels = ["Overview"];
+  if (multi) {
+    LEADERBOARDS.forEach((board) => {
+      slides.push(<LeaderboardSlide board={board} investors={investors} />);
+      labels.push(board.title);
+    });
+    slides.push(<TopStocksSlide investors={investors} />);
+    labels.push("Top Stocks");
+  }
 
   return (
     <div className="glass relative overflow-hidden rounded-3xl p-4 shadow-2xl shadow-black/30 sm:p-5">
@@ -831,123 +738,11 @@ function HeroCarousel({
         aria-hidden
         className="pointer-events-none absolute -right-20 -top-24 h-56 w-56 rounded-full bg-fuchsia-500/10 blur-3xl"
       />
-
-      <div
-        ref={setViewport}
-        onPointerDown={onDown}
-        onPointerMove={onMove}
-        onPointerUp={onUp}
-        onPointerCancel={onUp}
-        onClickCapture={onClickCapture}
-        className="relative select-none overflow-hidden"
-        style={{ touchAction: "pan-y", cursor: slides > 1 ? "grab" : "auto" }}
-      >
-        <div
-          className="flex"
-          style={{
-            transform: `translateX(calc(${-index * 100}% + ${delta}px))`,
-            transition: dragging
-              ? "none"
-              : "transform 0.45s cubic-bezier(0.22, 1, 0.36, 1)",
-          }}
-        >
-          {/* Slide 0 — group overview */}
-          <div className="w-full shrink-0 px-0.5">
-            <div className="flex flex-wrap items-end justify-between gap-4">
-              <div>
-                <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
-                  Group portfolio · {count}{" "}
-                  {count === 1 ? "investor" : "investors"}
-                </p>
-                <AnimatedNumber
-                  value={groupCurrent}
-                  format={formatCurrency}
-                  className="mt-1 block text-3xl font-bold tracking-tight text-white sm:text-4xl"
-                />
-                <div className="mt-1.5 flex items-center gap-2">
-                  <span
-                    className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-sm font-semibold ring-1 ${
-                      toneClasses(groupGain).pill
-                    }`}
-                  >
-                    {changeArrow(groupGain)} {formatPercent(groupGainPct)}
-                  </span>
-                  <span
-                    className={`text-sm font-medium ${toneClasses(groupGain).text}`}
-                  >
-                    {groupGain >= 0 ? "+" : "−"}
-                    {formatCurrency(Math.abs(groupGain))}
-                  </span>
-                </div>
-              </div>
-              {leader && count > 1 && (
-                <div className="rounded-2xl border border-amber-400/20 bg-amber-400/10 px-3 py-2 text-right">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-amber-200/80">
-                    🥇 Leader
-                  </p>
-                  <p className="text-sm font-bold text-amber-100">
-                    {leader.name}
-                  </p>
-                  <p className="text-xs text-amber-200/80">
-                    {formatPercent(returnPct(leader))}
-                  </p>
-                </div>
-              )}
-            </div>
-            {groupHistory.length > 1 && (
-              <div className="relative mt-3">
-                <Sparkline
-                  points={groupHistory}
-                  positive={groupGain >= 0}
-                  height={58}
-                  strokeWidth={2}
-                  showAxes
-                  className="w-full"
-                />
-              </div>
-            )}
-          </div>
-
-          {/* Leaderboard slides */}
-          {count > 1 &&
-            LEADERBOARDS.map((board) => (
-              <div key={board.id} className="w-full shrink-0 px-0.5">
-                <LeaderboardSlide board={board} investors={investors} />
-              </div>
-            ))}
-
-          {/* Top performing stocks across everyone */}
-          {count > 1 && (
-            <div className="w-full shrink-0 px-0.5">
-              <TopStocksSlide investors={investors} />
-            </div>
-          )}
-        </div>
-      </div>
-
-      {slides > 1 && (
-        <div className="relative mt-4 flex items-center justify-center gap-2">
-          {labels.map((label, i) => (
-            <button
-              key={label}
-              type="button"
-              onClick={() => goTo(i)}
-              aria-label={`Show ${label}`}
-              title={label}
-              className={`h-2 rounded-full transition-all ${
-                i === index
-                  ? "w-7 bg-linear-to-r from-cyan-400 to-fuchsia-400"
-                  : "w-2 bg-slate-600 hover:bg-slate-400"
-              }`}
-            />
-          ))}
-        </div>
-      )}
-      {slides > 1 && (
-        <p className="relative mt-1.5 text-center text-[11px] text-slate-500">
-          {labels[index]} · swipe for more
-        </p>
-      )}
+      <Carousel
+        slides={slides}
+        labels={labels}
+        hint={(label) => `${label} · swipe for more`}
+      />
     </div>
   );
 }
@@ -972,17 +767,11 @@ export default function Home() {
   const [data, setData] = useState<PortfolioResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [activeIndex, setActiveIndex] = useState(0);
   const { isAdmin } = useAdmin();
   const [showAddInvestor, setShowAddInvestor] = useState(false);
   const [newInvestorName, setNewInvestorName] = useState("");
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
-
-  const viewportRef = useRef<HTMLDivElement>(null);
-  const drag = useRef({ startX: 0, active: false, moved: false, width: 0 });
-  const [dragDelta, setDragDelta] = useState(0);
-  const [dragging, setDragging] = useState(false);
   const celebrated = useRef(false);
 
   const loadPortfolios = useCallback(async () => {
@@ -1058,10 +847,6 @@ export default function Home() {
   const groupGainPct = groupOriginal ? (groupGain / groupOriginal) * 100 : 0;
   const groupHistory = combineHistories(investors);
 
-  useEffect(() => {
-    setActiveIndex((prev) => (count ? Math.min(prev, count - 1) : 0));
-  }, [count]);
-
   // One-time celebration when the portfolio first loads in the green.
   useEffect(() => {
     if (loading || error || celebrated.current) return;
@@ -1071,77 +856,6 @@ export default function Home() {
       return () => clearTimeout(t);
     }
   }, [loading, error, count, groupGain]);
-
-  const goTo = useCallback(
-    (idx: number) => {
-      if (!count) return;
-      setActiveIndex(Math.max(0, Math.min(idx, count - 1)));
-    },
-    [count],
-  );
-
-  const setWheelNode = useWheelStep(count > 1, (dir) =>
-    setActiveIndex((prev) => Math.max(0, Math.min(prev + dir, count - 1))),
-  );
-  const setViewport = useCallback(
-    (node: HTMLDivElement | null) => {
-      viewportRef.current = node;
-      setWheelNode(node);
-    },
-    [setWheelNode],
-  );
-
-  const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (count <= 1) return;
-    drag.current = {
-      startX: e.clientX,
-      active: true,
-      moved: false,
-      width: viewportRef.current?.offsetWidth ?? 1,
-    };
-    setDragging(true);
-  };
-
-  const handlePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (!drag.current.active) return;
-    const delta = e.clientX - drag.current.startX;
-    if (Math.abs(delta) > 6 && !drag.current.moved) {
-      drag.current.moved = true;
-      // Capture only once a real drag starts, so plain taps still reach the
-      // card's link and navigate.
-      try {
-        e.currentTarget.setPointerCapture(e.pointerId);
-      } catch {
-        /* ignore */
-      }
-    }
-    // Add light resistance when dragging past the first/last card.
-    const atStart = activeIndex === 0 && delta > 0;
-    const atEnd = activeIndex === count - 1 && delta < 0;
-    setDragDelta(atStart || atEnd ? delta * 0.35 : delta);
-  };
-
-  const handlePointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (!drag.current.active) return;
-    const { startX, width } = drag.current;
-    const delta = e.clientX - startX;
-    drag.current.active = false;
-    setDragging(false);
-    setDragDelta(0);
-    const threshold = Math.min(120, width * 0.22);
-    if (delta <= -threshold) goTo(activeIndex + 1);
-    else if (delta >= threshold) goTo(activeIndex - 1);
-  };
-
-  const handleCardClick = (e: React.MouseEvent) => {
-    if (drag.current.moved) {
-      e.preventDefault();
-      e.stopPropagation();
-    }
-  };
-
-  const showNav = count > 1;
-  const basePct = -activeIndex * 100;
 
   return (
     <div className="app-backdrop min-h-screen overflow-x-clip text-slate-100">
@@ -1253,83 +967,16 @@ export default function Home() {
           )}
 
           {!loading && !error && count > 0 && (
-            <div className="relative mx-auto w-full max-w-xl">
-              <div
-                ref={setViewport}
-                onPointerDown={handlePointerDown}
-                onPointerMove={handlePointerMove}
-                onPointerUp={handlePointerUp}
-                onPointerCancel={handlePointerUp}
-                className="touch-pan-y cursor-grab select-none overflow-hidden active:cursor-grabbing"
-                style={{ touchAction: "pan-y" }}
-              >
-                <div
-                  className="flex"
-                  style={{
-                    transform: `translateX(calc(${basePct}% + ${dragDelta}px))`,
-                    transition: dragging
-                      ? "none"
-                      : "transform 0.45s cubic-bezier(0.22, 1, 0.36, 1)",
-                  }}
-                >
-                  {investors.map((investor) => (
-                    <div
-                      key={investor.slug}
-                      className="w-full shrink-0 px-0.5"
-                      onClickCapture={handleCardClick}
-                    >
-                      <InvestorCard investor={investor} />
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {showNav && (
-                <>
-                  {/* Side arrows: tablet + desktop only */}
-                  <button
-                    type="button"
-                    onClick={() => goTo(activeIndex - 1)}
-                    disabled={activeIndex === 0}
-                    aria-label="Previous investor"
-                    className="absolute -left-3 top-1/2 hidden h-11 w-11 -translate-y-1/2 cursor-pointer place-items-center rounded-full border border-white/10 bg-slate-900/80 text-cyan-200 shadow-lg backdrop-blur transition hover:border-cyan-300/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-30 md:grid lg:-left-6"
-                  >
-                    ◀
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => goTo(activeIndex + 1)}
-                    disabled={activeIndex === count - 1}
-                    aria-label="Next investor"
-                    className="absolute -right-3 top-1/2 hidden h-11 w-11 -translate-y-1/2 cursor-pointer place-items-center rounded-full border border-white/10 bg-slate-900/80 text-cyan-200 shadow-lg backdrop-blur transition hover:border-cyan-300/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-30 md:grid lg:-right-6"
-                  >
-                    ▶
-                  </button>
-
-                  {/* Dots + swipe hint */}
-                  <div className="mt-5 flex flex-col items-center gap-2">
-                    <div className="flex items-center gap-2">
-                      {investors.map((inv, idx) => (
-                        <button
-                          key={inv.slug}
-                          type="button"
-                          onClick={() => goTo(idx)}
-                          aria-label={`Go to ${inv.name}`}
-                          className={`h-2 rounded-full transition-all ${
-                            idx === activeIndex
-                              ? "w-6 bg-linear-to-r from-cyan-400 to-fuchsia-400"
-                              : "w-2 bg-slate-600 hover:bg-slate-400"
-                          }`}
-                        />
-                      ))}
-                    </div>
-                    <p className="text-[11px] text-slate-500 md:hidden">
-                      Swipe to explore
-                    </p>
-                  </div>
-                </>
-              )}
-            </div>
+            <Carousel
+              className="mx-auto w-full max-w-xl"
+              arrows
+              hint="Swipe to explore"
+              hintMobileOnly
+              labels={investors.map((inv) => inv.name)}
+              slides={investors.map((investor) => (
+                <InvestorCard key={investor.slug} investor={investor} />
+              ))}
+            />
           )}
         </section>
       </main>
