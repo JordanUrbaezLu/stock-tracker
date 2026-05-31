@@ -34,17 +34,20 @@ export type SoundEngine = {
   startSearching: () => void;
   /** Stop the looped "analyzing" motif. */
   stopSearching: () => void;
+  /** Resume/unlock the audio context. MUST be called synchronously inside a
+   *  user gesture (Safari/iOS reject a resume that happens after an await). */
+  resume: () => void;
 };
 
 /**
- * Dynamically load Tone.js, unlock the audio context (must run inside a user
- * gesture) and build the synth graph once. Returns a tiny play() facade.
+ * Dynamically load Tone.js and build the synth graph once. The audio context is
+ * created here (suspended) but NOT resumed — call engine.resume() from inside a
+ * user gesture to unlock it. Returns a small facade.
  */
 export async function createSoundEngine(): Promise<SoundEngine | null> {
   let Tone: typeof ToneNS;
   try {
     Tone = await import("tone");
-    await Tone.start(); // resume the AudioContext (requires a user gesture)
   } catch {
     return null;
   }
@@ -139,6 +142,20 @@ export async function createSoundEngine(): Promise<SoundEngine | null> {
     searchLoop.stop();
     searchLoop.dispose();
     searchLoop = null;
+  };
+
+  // Unlock the audio context. Calling the native resume() synchronously inside
+  // a gesture is what Safari/iOS require; Tone.start() also flips Tone's flag.
+  // Cheap no-op once the context is already running.
+  const resume = () => {
+    try {
+      const raw = Tone.getContext().rawContext as unknown as AudioContext;
+      if (!raw || raw.state === "running") return;
+      void raw.resume();
+      void Tone.start();
+    } catch {
+      /* ignore */
+    }
   };
 
   const play = (name: SoundName) => {
@@ -245,5 +262,5 @@ export async function createSoundEngine(): Promise<SoundEngine | null> {
     }
   };
 
-  return { play, startSearching, stopSearching };
+  return { play, startSearching, stopSearching, resume };
 }

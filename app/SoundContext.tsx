@@ -52,9 +52,11 @@ export function SoundProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Lazily import + build the Tone engine. Must be kicked off from a user
-  // gesture so the AudioContext can unlock. Replays any queued first sound and
-  // resumes the analyzing loop if it was requested while still loading.
+  // Build the Tone engine (imports Tone, builds the synth graph, creates a
+  // SUSPENDED audio context — no gesture needed). Doing this ahead of time is
+  // what makes the unlock reliable: by the time the user taps, the engine is
+  // ready so resume() can run synchronously inside the gesture (Safari/iOS
+  // reject a resume scheduled after a dynamic import's await).
   const ensureEngine = useCallback(() => {
     if (engineRef.current || loadingRef.current) return;
     loadingRef.current = true;
@@ -66,6 +68,7 @@ export function SoundProvider({ children }: { children: ReactNode }) {
           pendingRef.current = null;
           return;
         }
+        engine.resume();
         if (pendingRef.current) engine.play(pendingRef.current);
         if (searchingRef.current) engine.startSearching();
         pendingRef.current = null;
@@ -75,25 +78,29 @@ export function SoundProvider({ children }: { children: ReactNode }) {
       });
   }, []);
 
-  // Warm up + unlock audio on the very first interaction anywhere.
+  // Preload the engine after mount, and unlock the audio context on the first
+  // user gesture anywhere (resume runs synchronously here — Safari-safe).
   useEffect(() => {
-    const warm = () => ensureEngine();
-    const opts = { once: true, capture: true } as const;
+    ensureEngine();
+    const warm = () => engineRef.current?.resume();
+    const opts = { capture: true } as const;
     window.addEventListener("pointerdown", warm, opts);
-    window.addEventListener("keydown", warm, opts);
     window.addEventListener("touchstart", warm, opts);
+    window.addEventListener("keydown", warm, opts);
     return () => {
       window.removeEventListener("pointerdown", warm, opts);
-      window.removeEventListener("keydown", warm, opts);
       window.removeEventListener("touchstart", warm, opts);
+      window.removeEventListener("keydown", warm, opts);
     };
   }, [ensureEngine]);
 
   const play = useCallback(
     (name: SoundName) => {
       if (!enabledRef.current) return;
-      if (engineRef.current) {
-        engineRef.current.play(name);
+      const engine = engineRef.current;
+      if (engine) {
+        engine.resume(); // keep the context unlocked (runs inside the gesture)
+        engine.play(name);
         return;
       }
       pendingRef.current = name;
@@ -105,8 +112,13 @@ export function SoundProvider({ children }: { children: ReactNode }) {
   const startSearching = useCallback(() => {
     if (!enabledRef.current) return;
     searchingRef.current = true;
-    if (engineRef.current) engineRef.current.startSearching();
-    else ensureEngine();
+    const engine = engineRef.current;
+    if (engine) {
+      engine.resume();
+      engine.startSearching();
+    } else {
+      ensureEngine();
+    }
   }, [ensureEngine]);
 
   const stopSearching = useCallback(() => {
