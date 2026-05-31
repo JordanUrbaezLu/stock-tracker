@@ -6,6 +6,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { HoldingsList } from "../HoldingsList";
+import { PortfolioChat } from "../PortfolioChat";
 import { useAdmin } from "../../AdminContext";
 import { Sparkline } from "../../Sparkline";
 import { initials, avatarGradient } from "../../avatar";
@@ -42,6 +43,11 @@ type InvestorValue = {
   currentValue: number;
   change: number;
   changePercent: number;
+  dayChange?: number;
+  dayChangePercent?: number;
+  spyReturn?: number | null;
+  alphaSpy?: number | null;
+  benchmarkHistory?: HistoryPoint[];
   holdings: HoldingValue[];
   valueHistory: HistoryPoint[];
 };
@@ -221,54 +227,6 @@ export default function InvestorDetail() {
         year: "numeric",
       })
     : "";
-
-  // Personalized AI encouragement, shared with the home card via /api/insight
-  // (same endpoint, same response cache, graceful templated fallback).
-  const [insight, setInsight] = useState<string | null>(null);
-  useEffect(() => {
-    if (!investor) return;
-    const controller = new AbortController();
-    const open = (investor.holdings || []).filter(
-      (h) => h.status !== "closed" && h.changePercent != null,
-    );
-    const gain = investor.currentValue - investor.originalAmountInvested;
-    const pct = investor.originalAmountInvested
-      ? (gain / investor.originalAmountInvested) * 100
-      : 0;
-    const top = open.reduce<HoldingValue | null>(
-      (best, h) =>
-        best == null || (h.changePercent ?? 0) > (best.changePercent ?? 0)
-          ? h
-          : best,
-      null,
-    );
-    fetch("/api/insight", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
-      body: JSON.stringify({
-        name: investor.name,
-        currentValue: investor.currentValue,
-        originalInvested: investor.originalAmountInvested,
-        totalGain: gain,
-        gainPct: pct,
-        holdingsCount: open.length,
-        topHolding: top
-          ? { symbol: top.symbol, changePercent: top.changePercent ?? null }
-          : null,
-        holdings: open.slice(0, 6).map((h) => ({
-          symbol: h.symbol,
-          changePercent: h.changePercent ?? null,
-        })),
-      }),
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((j: { message?: string } | null) => {
-        if (j?.message) setInsight(j.message);
-      })
-      .catch(() => null);
-    return () => controller.abort();
-  }, [investor]);
 
   const handleSaveInvestment = useCallback(async () => {
     if (!investor || !isAdmin) {
@@ -466,8 +424,8 @@ export default function InvestorDetail() {
 
   return (
     <div className="app-backdrop min-h-screen text-slate-100">
-      <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-6 px-4 py-8 sm:px-6 sm:py-10">
-        <header className="glass relative flex flex-col gap-5 overflow-hidden rounded-3xl p-5 shadow-2xl shadow-black/30 sm:p-6">
+      <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-4 px-4 py-6 sm:px-6 sm:py-8">
+        <header className="glass relative flex flex-col gap-4 overflow-hidden rounded-3xl p-5 shadow-2xl shadow-black/30 sm:p-6">
           <div
             aria-hidden
             className="pointer-events-none absolute -right-24 -top-28 h-64 w-64 rounded-full bg-cyan-500/10 blur-3xl"
@@ -506,13 +464,13 @@ export default function InvestorDetail() {
             </p>
           )}
           {!loading && !error && investor && (
-            <div className="relative space-y-5">
-              <div className="flex items-center gap-3.5">
+            <div className="relative space-y-3.5">
+              <div className="flex items-center gap-3">
                 <span
                   aria-hidden
-                  className={`avatar-pulse flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br ${avatarGradient(
+                  className={`avatar-pulse flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-linear-to-br ${avatarGradient(
                     investor.name,
-                  )} text-lg font-bold text-white shadow-lg shadow-black/30 ring-1 ring-white/20`}
+                  )} text-base font-bold text-white shadow-lg shadow-black/30 ring-1 ring-white/20`}
                 >
                   {initials(investor.name)}
                 </span>
@@ -534,7 +492,7 @@ export default function InvestorDetail() {
                   Current value
                 </p>
                 <div className="mt-1 flex flex-wrap items-end gap-3">
-                  <span className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
+                  <span className="text-3xl font-bold tracking-tight text-white sm:text-4xl">
                     {formatCurrency(investor.currentValue)}
                   </span>
                   <span
@@ -544,57 +502,42 @@ export default function InvestorDetail() {
                   >
                     {originalGain >= 0 ? "▲" : "▼"} {formatPercent(originalGainPct)}
                   </span>
-                  <span className={`mb-1 text-sm font-medium ${badgeColor(originalGain)}`}>
-                    {originalGain >= 0 ? "+" : "−"}
-                    {formatCurrency(Math.abs(originalGain))} vs cash in
-                  </span>
+                </div>
+                {/* Today + vs S&P share one line to keep the card compact. */}
+                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs font-medium">
+                  {typeof investor.dayChangePercent === "number" && (
+                    <span className="text-slate-500">
+                      Today{" "}
+                      <span className={badgeColor(investor.dayChange ?? 0)}>
+                        {formatPercent(investor.dayChangePercent)} (
+                        {(investor.dayChange ?? 0) >= 0 ? "+" : "−"}
+                        {formatCurrency(Math.abs(investor.dayChange ?? 0))})
+                      </span>
+                    </span>
+                  )}
+                  {typeof investor.alphaSpy === "number" && (
+                    <span
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold ring-1 ${tonePill(
+                        investor.alphaSpy,
+                      )}`}
+                      title="Return vs the S&P 500 over the same period"
+                    >
+                      {investor.alphaSpy >= 0 ? "▲" : "▼"}{" "}
+                      {`${investor.alphaSpy >= 0 ? "+" : "−"}${Math.abs(
+                        investor.alphaSpy,
+                      ).toFixed(1)}% vs S&P`}
+                    </span>
+                  )}
                 </div>
               </div>
 
-              {insight && (
-                <div className="flex items-start gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2.5">
-                  <span className="text-base leading-5" aria-hidden>
-                    ✨
-                  </span>
-                  <p className="text-sm leading-5 text-emerald-100">{insight}</p>
-                </div>
-              )}
-
-              {investor.valueHistory && investor.valueHistory.length > 1 && (
-                <div className="rounded-2xl border border-white/5 bg-white/2 p-3">
-                  <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                    Portfolio value · since investing
-                  </p>
-                  <Sparkline
-                    points={investor.valueHistory}
-                    positive={originalGain >= 0}
-                    height={120}
-                    strokeWidth={2}
-                    showAxes
-                    className="w-full"
-                  />
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="grid grid-cols-2 gap-2.5">
                 {[
                   {
                     label: "Original invested",
                     value: formatCurrency(investor.originalAmountInvested),
                     tone: "text-white",
                     box: "border-white/5 bg-white/3",
-                  },
-                  {
-                    label: "Total invested",
-                    value: formatCurrency(investor.totalInvested),
-                    tone: "text-white",
-                    box: "border-white/5 bg-white/3",
-                  },
-                  {
-                    label: "Current value",
-                    value: formatCurrency(investor.currentValue),
-                    tone: "text-cyan-100",
-                    box: "border-cyan-400/20 bg-cyan-500/10",
                   },
                   {
                     label: "Total gain",
@@ -610,12 +553,12 @@ export default function InvestorDetail() {
                 ].map((stat) => (
                   <div
                     key={stat.label}
-                    className={`rounded-2xl border px-3 py-2.5 ${stat.box}`}
+                    className={`min-w-0 rounded-xl border px-3 py-2 ${stat.box}`}
                   >
-                    <p className="text-[10px] uppercase tracking-wider text-slate-400">
+                    <p className="truncate text-[10px] uppercase tracking-wider text-slate-400">
                       {stat.label}
                     </p>
-                    <p className={`mt-0.5 text-sm font-semibold ${stat.tone}`}>
+                    <p className={`mt-0.5 truncate text-sm font-semibold ${stat.tone}`}>
                       {stat.value}
                     </p>
                   </div>
@@ -645,6 +588,65 @@ export default function InvestorDetail() {
             </div>
           )}
         </header>
+
+        {!loading &&
+          !error &&
+          investor &&
+          investor.valueHistory &&
+          investor.valueHistory.length > 1 && (
+            <section className="glass relative overflow-hidden rounded-3xl p-4 shadow-2xl shadow-black/30 sm:p-5">
+              <div className="rounded-2xl border border-white/5 bg-white/2 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    Portfolio value · 6-month trend
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`inline-flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider ${
+                        originalGain >= 0 ? "text-emerald-300" : "text-rose-300"
+                      }`}
+                    >
+                      <span
+                        aria-hidden
+                        className={`inline-block h-0 w-3 border-t-2 ${
+                          originalGain >= 0
+                            ? "border-emerald-400"
+                            : "border-rose-400"
+                        }`}
+                      />
+                      Portfolio
+                    </span>
+                    {investor.benchmarkHistory &&
+                      investor.benchmarkHistory.length > 1 && (
+                        <span className="inline-flex items-center gap-1 text-[9px] font-medium uppercase tracking-wider text-slate-500">
+                          <span
+                            aria-hidden
+                            className="inline-block h-0 w-3 border-t border-dashed border-slate-400/70"
+                          />
+                          S&amp;P 500
+                        </span>
+                      )}
+                  </div>
+                </div>
+                <Sparkline
+                  points={investor.valueHistory}
+                  benchmark={investor.benchmarkHistory}
+                  positive={originalGain >= 0}
+                  height={120}
+                  strokeWidth={2}
+                  showAxes
+                  className="w-full"
+                />
+              </div>
+            </section>
+          )}
+
+        {!loading && !error && investor && (
+          <PortfolioChat
+            askerName={investor.name}
+            investors={data?.investors ?? []}
+          />
+        )}
 
         {!loading && !error && investor && (
           <section className="glass overflow-hidden rounded-3xl p-5 shadow-2xl shadow-black/30 sm:p-6">

@@ -2,6 +2,7 @@
 
 import { useState, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
+import { fmpLogoUrl } from "@/lib/alpaca";
 
 type Props = {
   symbol: string;
@@ -28,8 +29,13 @@ export function CompanyLogo({
   linkToLookup = false,
 }: Props) {
   const router = useRouter();
-  const [errored, setErrored] = useState(false);
-  const showImg = Boolean(logo) && !errored;
+  // Try the provided logo (Finnhub) first, then FMP's CDN, then a monogram.
+  const [failed, setFailed] = useState<Record<string, boolean>>({});
+  const candidates = [logo, fmpLogoUrl(symbol)].filter(
+    (u): u is string => Boolean(u),
+  );
+  const src = candidates.find((u) => !failed[u]);
+  const showImg = Boolean(src);
 
   const inner = (
     <span className="company-logo__bob" style={{ animationDelay: `${-delay}ms` }}>
@@ -38,11 +44,13 @@ export function CompanyLogo({
         <span className="company-logo__inner company-logo__inner--img">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src={logo as string}
+            src={src as string}
             alt={`${name || symbol} logo`}
             className="company-logo__img"
             loading="lazy"
-            onError={() => setErrored(true)}
+            onError={() =>
+              setFailed((prev) => ({ ...prev, [src as string]: true }))
+            }
           />
         </span>
       ) : (
@@ -57,7 +65,16 @@ export function CompanyLogo({
     </span>
   );
 
-  const style = { width: size, height: size, animationDelay: `${delay}ms` };
+  // Keep the rounded-SQUARE look consistent across sizes. The CSS sets a fixed
+  // 0.8rem radius, which on small marks (e.g. the 26px top-holdings logos)
+  // approaches half the box and renders as a circle. Scaling the radius with
+  // size keeps every logo a rounded square like the larger holding cards.
+  const style = {
+    width: size,
+    height: size,
+    borderRadius: Math.round(size * 0.26),
+    animationDelay: `${delay}ms`,
+  };
 
   if (!linkToLookup) {
     return (

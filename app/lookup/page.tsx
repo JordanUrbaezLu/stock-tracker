@@ -11,298 +11,60 @@ import {
   useState,
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { motion } from "motion/react";
 import { CompanyLogo } from "../CompanyLogo";
+import { Sparkline } from "../Sparkline";
+import { RichText } from "../RichText";
+
+const MotionLink = motion.create(Link);
 
 type Quote = {
   symbol: string;
   name?: string | null;
   exchange?: string | null;
-  currency?: string | null;
-  industry?: string | null;
+  logo?: string | null;
   price: number;
   change: number;
   changePercent: string;
-  high?: number | null;
-  low?: number | null;
-  open?: number | null;
-  previousClose?: number | null;
-  timestamp?: number | null;
-  rawQuote?: unknown;
-  rawProfile?: unknown;
 };
 
 type SearchResult = { symbol: string; description: string; type: string | null };
 type HistoryPoint = { time: number; close: number };
 
-function formatPercent(value: number) {
-  if (!Number.isFinite(value)) return "—";
-  return `${value.toFixed(2)}%`;
+const DAY = 86400;
+
+function fmtPct(v: number | null | undefined) {
+  if (v == null || Number.isNaN(v)) return "—";
+  return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
 }
 
-function HistoryChart({ history }: { history: HistoryPoint[] }) {
-  const [isMobile, setIsMobile] = useState<boolean | null>(null);
-  const [hover, setHover] = useState<{
-    x: number;
-    y: number;
-    price: number;
-    time: number;
-  } | null>(null);
-  useEffect(() => {
-    const check = () => setIsMobile(typeof window !== "undefined" && window.innerWidth < 640);
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, []);
+function fmtMoney(v: number) {
+  return `$${Math.abs(v).toLocaleString("en-US", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
 
-  const monthCompressed = useMemo(() => {
-    const sorted = [...history].sort((a, b) => a.time - b.time);
-    const out: HistoryPoint[] = [];
-    sorted.forEach((point) => {
-      const d = new Date(point.time * 1000);
-      const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
-      const last = out[out.length - 1];
-      const lastKey =
-        last &&
-        (() => {
-          const ld = new Date(last.time * 1000);
-          return `${ld.getUTCFullYear()}-${ld.getUTCMonth()}`;
-        })();
-      if (last && lastKey === key) {
-        out[out.length - 1] = point;
-      } else {
-        out.push(point);
-      }
-    });
-    return out;
-  }, [history]);
+function toneText(v: number | null | undefined) {
+  if (v == null || v === 0) return "text-slate-300";
+  return v > 0 ? "text-emerald-400" : "text-rose-400";
+}
 
-  if (!history.length) {
-    return <p className="text-sm text-slate-400">No history to show.</p>;
-  }
+/** % return between `days` ago and the latest close. */
+function returnOver(history: HistoryPoint[], days: number): number | null {
+  if (!history || history.length < 2) return null;
+  const last = history[history.length - 1];
+  const cutoff = last.time - days * DAY;
+  const start = history.find((p) => p.time >= cutoff) ?? history[0];
+  if (!start.close) return null;
+  return ((last.close - start.close) / start.close) * 100;
+}
 
-  const windowPoints = isMobile ? 180 : 365; // 6mo on small screens, 12mo otherwise
-  let trimmed = monthCompressed.slice(-windowPoints);
-  if (isMobile && trimmed.length <= 24) {
-    const keep = Math.min(trimmed.length, 6);
-    trimmed = trimmed.slice(-keep);
-  }
-  if (trimmed.length < 2) {
-    return <p className="text-sm text-slate-400">Not enough history to chart.</p>;
-  }
-
-  const targetPoints = isMobile ? 40 : 60;
-  const step = Math.max(1, Math.floor(trimmed.length / targetPoints));
-  const sampled = trimmed.filter((_, idx) => idx % step === 0);
-
-  const width = 540;
-  const height = isMobile ? 240 : 200;
-  const min = Math.min(...sampled.map((p) => p.close));
-  const max = Math.max(...sampled.map((p) => p.close));
-  const range = max - min || 1;
-
-  const plotted = sampled.map((point, index) => {
-    const x =
-      sampled.length === 1 ? width : (index / (sampled.length - 1)) * width;
-    const y = height - ((point.close - min) / range) * height;
-    return { ...point, x, y };
-  });
-
-  const path = plotted
-    .map((point, index) => `${index === 0 ? "M" : "L"}${point.x},${point.y}`)
-    .join(" ");
-
-  const first = sampled[0]?.close ?? 0;
-  const last = sampled.at(-1)?.close ?? first;
-  const change = last - first;
-  const changePct = first ? (change / first) * 100 : 0;
-  const changeColor =
-    change === 0 ? "text-slate-200" : change > 0 ? "text-emerald-400" : "text-rose-400";
-
-  const startLabel = sampled[0]?.time
-    ? new Date(sampled[0].time * 1000).toLocaleDateString(undefined, {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      })
-    : "";
-
-  const gradientId = `historyGradient-${sampled[0]?.time ?? "g"}`;
-  const yTicks = [max, min + range * 0.5, min];
-  const changeLabel = isMobile ? "6-month change" : "1-year change";
-
-  return (
-    <div className="space-y-3">
-        <div className="flex items-end justify-between text-sm text-slate-300">
-          <div>
-            <p className="text-xs uppercase tracking-wide text-slate-500">
-              {changeLabel}
-            </p>
-            <p
-              className={`${changeColor} font-semibold ${
-                isMobile ? "text-base" : "text-lg"
-              }`}
-            >
-              {change > 0 ? "▲" : change < 0 ? "▼" : "•"} ${Math.abs(change).toFixed(2)} (
-              {formatPercent(changePct)})
-            </p>
-        </div>
-        <p className="text-xs text-slate-500">
-          Starting {startLabel || "—"}
-        </p>
-      </div>
-      <div className="relative z-30 overflow-visible rounded-2xl border border-white/8 bg-slate-950/50 p-3">
-        <svg
-          viewBox={`0 0 ${width} ${height}`}
-          role="img"
-          className="h-64 w-full text-cyan-300"
-          aria-label="1 year price trend"
-        >
-          <defs>
-            <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
-              <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.65" />
-              <stop offset="100%" stopColor="#22d3ee" stopOpacity="0" />
-            </linearGradient>
-          </defs>
-          <line x1={0} y1={height} x2={width} y2={height} stroke="#1e293b" strokeWidth="1" />
-          <line x1={0} y1={0} x2={0} y2={height} stroke="#1e293b" strokeWidth="1" />
-          {yTicks.map((tick) => {
-            const y = height - ((tick - min) / range) * height;
-            return (
-              <g key={tick}>
-                <line
-                  x1={0}
-                  y1={y}
-                  x2={width}
-                  y2={y}
-                  stroke="#1e293b"
-                  strokeWidth="0.5"
-                  strokeDasharray="4 4"
-                />
-                <text
-                  x={6}
-                  y={y - 2}
-                  fill="#e2e8f0"
-                  fontSize={isMobile ? "25" : "14"}
-                  fontWeight="800"
-                  textAnchor="start"
-                >
-                  ${tick.toFixed(2)}
-                </text>
-              </g>
-            );
-          })}
-          <path
-            d={`${path} L${width},${height} L0,${height} Z`}
-            fill={`url(#${gradientId})`}
-            stroke="none"
-          />
-          <path d={path} fill="none" stroke="currentColor" strokeWidth="2.5" />
-          {plotted.map((point, index) => (
-            <circle
-              key={`${point.time}-${index}`}
-              cx={point.x}
-              cy={point.y}
-              r={6}
-              fill="currentColor"
-              className="opacity-80 cursor-pointer"
-              onMouseEnter={() =>
-                setHover({
-                  x: point.x,
-                  y: point.y,
-                  price: point.close,
-                  time: point.time,
-                })
-              }
-              onMouseLeave={() => setHover(null)}
-              onClick={() =>
-                setHover({
-                  x: point.x,
-                  y: point.y,
-                  price: point.close,
-                  time: point.time,
-                })
-              }
-              onTouchStart={() =>
-                setHover({
-                  x: point.x,
-                  y: point.y,
-                  price: point.close,
-                  time: point.time,
-                })
-              }
-            />
-          ))}
-          {plotted.map((point, index) => (
-            <circle
-              key={`hit-${point.time}-${index}`}
-              cx={point.x}
-              cy={point.y}
-              r={16}
-              fill="transparent"
-              className="cursor-pointer"
-              onMouseEnter={() =>
-                setHover({
-                  x: point.x,
-                  y: point.y,
-                  price: point.close,
-                  time: point.time,
-                })
-              }
-              onMouseLeave={() => setHover(null)}
-              onClick={() =>
-                setHover({
-                  x: point.x,
-                  y: point.y,
-                  price: point.close,
-                  time: point.time,
-                })
-              }
-              onTouchStart={() =>
-                setHover({
-                  x: point.x,
-                  y: point.y,
-                  price: point.close,
-                  time: point.time,
-                })
-              }
-            />
-          ))}
-        </svg>
-        {hover && (
-          <div
-            className="pointer-events-none absolute z-20 rounded-lg border border-cyan-400/40 bg-slate-900/95 px-3 py-2 text-sm text-slate-100 shadow-lg backdrop-blur"
-            style={{
-              left: "50%",
-              top: 10,
-              transform: "translateX(-50%)",
-            }}
-          >
-            <div className="font-semibold">
-              {new Date(hover.time * 1000).toLocaleDateString(undefined, {
-                month: "short",
-                year: "numeric",
-              })}
-            </div>
-            <div className="text-cyan-200">${hover.price.toFixed(2)}</div>
-          </div>
-        )}
-        <div className="mt-1 flex items-center justify-between text-xs text-slate-300 font-semibold">
-          <span>
-            {new Date(sampled[0].time * 1000).toLocaleDateString(undefined, {
-              month: "short",
-              year: "numeric",
-            })}
-          </span>
-          <span>
-            {new Date(sampled.at(-1)!.time * 1000).toLocaleDateString(undefined, {
-              month: "short",
-              year: "numeric",
-            })}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
+function sliceDays(history: HistoryPoint[], days: number): HistoryPoint[] {
+  if (!history.length) return [];
+  const cutoff = history[history.length - 1].time - days * DAY;
+  const sliced = history.filter((p) => p.time >= cutoff);
+  return sliced.length >= 2 ? sliced : history;
 }
 
 function sanitizeSymbol(raw: string) {
@@ -327,29 +89,29 @@ function LookupContent() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [results, setResults] = useState<SearchResult[]>([]);
-  const [searching, setSearching] = useState(false);
   const [history, setHistory] = useState<HistoryPoint[] | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
-  const [historyError, setHistoryError] = useState<string | null>(null);
-  const [isMobile, setIsMobile] = useState<boolean | null>(null);
+  const [take, setTake] = useState<string | null>(null);
+  // The 6-month analysis is generated lazily — only once the user expands the
+  // card — and re-fetched per symbol. analysisDone marks a finished request so
+  // we can tell "still loading" apart from "finished but empty".
+  const [analysisOpen, setAnalysisOpen] = useState(false);
+  const [analysisDone, setAnalysisDone] = useState(false);
+  const analysisFor = useRef<string | null>(null);
+  // Controls the type-ahead dropdown — only shown while the input is focused.
+  const [focused, setFocused] = useState(false);
 
   const fetchHistory = useCallback(async (symbol: string) => {
     setHistoryLoading(true);
-    setHistoryError(null);
     setHistory(null);
     try {
       const res = await fetch(`/api/history?symbol=${encodeURIComponent(symbol)}`);
-      const data = (await res.json()) as { history?: HistoryPoint[]; error?: string };
-      if (!res.ok || !data.history) {
-        const message =
-          data.error || `No history found for ${symbol.toUpperCase()}.`;
-        throw new Error(message);
+      const data = (await res.json()) as { history?: HistoryPoint[] };
+      if (res.ok && data.history) {
+        setHistory([...data.history].sort((a, b) => a.time - b.time));
       }
-      const sorted = [...data.history].sort((a, b) => a.time - b.time);
-      setHistory(sorted);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Could not load history.";
-      setHistoryError(message);
+    } catch {
+      // chart simply won't render; quote still shows
     } finally {
       setHistoryLoading(false);
     }
@@ -358,13 +120,11 @@ function LookupContent() {
   const loadQuote = useCallback(
     async (rawSymbol: string, syncUrl = false) => {
       const symbol = sanitizeSymbol(rawSymbol);
-
       if (!symbol) {
         setError("Enter a ticker symbol to look up.");
         setQuote(null);
         return;
       }
-
       lastLoaded.current = symbol;
       setTicker(symbol);
       if (syncUrl) {
@@ -372,35 +132,30 @@ function LookupContent() {
           scroll: false,
         });
       }
-
       setLoading(true);
       setError(null);
       setQuote(null);
       setHistory(null);
-      setHistoryError(null);
-
+      setTake(null);
+      setAnalysisOpen(false);
+      setAnalysisDone(false);
+      analysisFor.current = null;
       try {
         const response = await fetch(`/api/quote?symbol=${symbol}`);
         const data = await response.json();
-
         if (!response.ok) {
-          const fallbackMessage = "Could not fetch quote.";
-          const notFoundMessage = `No data found for ${symbol}. Check the ticker and try again.`;
-          const message =
+          throw new Error(
             response.status === 404
-              ? notFoundMessage
+              ? `No data found for ${symbol}. Check the ticker and try again.`
               : typeof data.error === "string"
                 ? data.error
-                : fallbackMessage;
-          throw new Error(message);
+                : "Could not fetch quote.",
+          );
         }
-
         setQuote(data as Quote);
         void fetchHistory(symbol);
       } catch (err) {
-        const message =
-          err instanceof Error ? err.message : "Something went wrong.";
-        setError(message);
+        setError(err instanceof Error ? err.message : "Something went wrong.");
       } finally {
         setLoading(false);
       }
@@ -413,91 +168,123 @@ function LookupContent() {
     overrideSymbol?: string,
   ) => {
     event?.preventDefault();
+    setFocused(false);
     await loadQuote(overrideSymbol ?? ticker, true);
   };
 
-  // Auto-search when arriving via ?symbol= or ?ticker= (e.g. logo click).
+  // Auto-search when arriving via ?symbol= (e.g. logo click elsewhere).
   useEffect(() => {
     if (!urlSymbol || urlSymbol === lastLoaded.current) return;
     void loadQuote(urlSymbol);
   }, [urlSymbol, loadQuote]);
 
-  const changeColor =
-    quote && quote.change !== 0
-      ? quote.change > 0
-        ? "text-emerald-400"
-        : "text-rose-400"
-      : "text-slate-200";
-
+  // Type-ahead suggestions (top 3).
   useEffect(() => {
     const term = ticker.trim();
     if (!term) {
       setResults([]);
       return;
     }
-
     const handler = setTimeout(async () => {
-      setSearching(true);
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(term)}`);
-        const data = (await res.json()) as { results?: SearchResult[]; error?: string };
-        if (res.ok && Array.isArray(data.results)) {
-          setResults(data.results);
-        } else {
-          setResults([]);
-        }
+        const data = (await res.json()) as { results?: SearchResult[] };
+        setResults(res.ok && Array.isArray(data.results) ? data.results : []);
       } catch {
         setResults([]);
-      } finally {
-        setSearching(false);
       }
     }, 250);
-
     return () => clearTimeout(handler);
   }, [ticker]);
 
-  const topSuggestion = useMemo(() => results[0]?.symbol ?? "", [results]);
+  const perf = useMemo(() => {
+    if (!history || history.length < 2) return null;
+    const six = sliceDays(history, 183);
+    const closes6 = six.map((p) => p.close);
+    return {
+      ret1m: returnOver(history, 30),
+      ret6m: returnOver(history, 183),
+      ret1y: returnOver(history, 365),
+      six,
+      low6m: closes6.length ? Math.min(...closes6) : null,
+      high6m: closes6.length ? Math.max(...closes6) : null,
+      change6m: six.length >= 2 ? six[six.length - 1].close - six[0].close : null,
+    };
+  }, [history]);
 
+  // AI 6-month read — generated lazily, only after the user expands the card
+  // (guarded per-symbol so it fires once). Leaving the card closed skips the
+  // API call entirely.
   useEffect(() => {
-    const check = () => setIsMobile(typeof window !== "undefined" && window.innerWidth < 640);
-    check();
-    window.addEventListener("resize", check);
-    return () => window.removeEventListener("resize", check);
-  }, []);
-
-  const trendLabel = isMobile ? "6-month trend" : "1-year trend";
+    if (!analysisOpen || !quote || !perf) return;
+    if (analysisFor.current === quote.symbol) return;
+    analysisFor.current = quote.symbol;
+    const controller = new AbortController();
+    setTake(null);
+    setAnalysisDone(false);
+    fetch("/api/stock-take", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        symbol: quote.symbol,
+        name: quote.name,
+        price: quote.price,
+        todayPct: parseFloat(quote.changePercent) || null,
+        ret1m: perf.ret1m,
+        ret6m: perf.ret6m,
+        ret1y: perf.ret1y,
+        low6m: perf.low6m,
+        high6m: perf.high6m,
+      }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { read?: string | null; note?: string } | null) => {
+        if (j) setTake(j.read ?? j.note ?? null);
+      })
+      .catch(() => null)
+      .finally(() => setAnalysisDone(true));
+    return () => controller.abort();
+  }, [analysisOpen, quote, perf]);
 
   return (
-    <div className="app-backdrop min-h-screen text-slate-100">
-      <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 px-4 py-8 sm:px-6 sm:py-10">
-        <header className="glass sticky top-3 z-30 rounded-2xl px-4 py-3 shadow-xl shadow-black/30 sm:px-5">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <span className="grid h-9 w-9 place-items-center rounded-xl bg-linear-to-br from-cyan-400 via-fuchsia-500 to-indigo-500 text-base">
+    <div className="app-backdrop min-h-screen overflow-x-clip text-slate-100">
+      <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8">
+        <header className="glass relative overflow-hidden rounded-2xl px-3 py-3 shadow-xl shadow-black/30 sm:px-5">
+          <div className="relative flex items-center justify-between gap-2 sm:gap-3">
+            <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-linear-to-br from-cyan-400 via-fuchsia-500 to-indigo-500 text-base">
                 🔍
               </span>
-              <div className="leading-tight">
-                <p className="gradient-text text-base font-bold tracking-tight">
+              <div className="min-w-0 leading-tight">
+                <p className="gradient-text truncate text-base font-bold tracking-tight">
                   Ticker lookup
                 </p>
-                <p className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
-                  Live quotes &amp; trends
+                <p className="truncate text-[10px] uppercase tracking-widest text-slate-400 sm:tracking-[0.2em]">
+                  Performance &amp; trend
                 </p>
               </div>
             </div>
-            <Link
+            <MotionLink
               href="/"
-              className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-sm font-semibold text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white"
+              whileTap={{ scale: 0.95 }}
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3.5 py-1.5 text-sm font-semibold text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white sm:px-4"
             >
               ← Back
-            </Link>
+            </MotionLink>
           </div>
         </header>
 
-        <section className="glass rounded-3xl p-4 shadow-2xl shadow-black/30 sm:p-6">
+        <section className="glass relative rounded-3xl p-4 shadow-2xl shadow-black/30 sm:p-6">
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 overflow-hidden rounded-3xl"
+          >
+            <div className="absolute -right-20 -top-24 h-56 w-56 rounded-full bg-cyan-500/10 blur-3xl" />
+          </div>
           <form
             onSubmit={handleSubmit}
-            className="flex flex-col gap-2 sm:flex-row sm:gap-3"
+            className="relative flex items-center gap-2 sm:gap-3"
           >
             <label className="sr-only" htmlFor="ticker">
               Ticker symbol
@@ -507,162 +294,237 @@ function LookupContent() {
               name="ticker"
               value={ticker}
               onChange={(e) => setTicker(e.target.value)}
-              placeholder="AAPL"
-              className="h-12 flex-1 rounded-xl border border-white/10 bg-slate-950/60 p-3 text-lg uppercase tracking-wide text-slate-100 outline-none transition focus:border-cyan-400"
+              onFocus={() => setFocused(true)}
+              onBlur={() => window.setTimeout(() => setFocused(false), 120)}
+              autoComplete="off"
+              placeholder="Search a ticker (e.g. AAPL, TQQQ)"
+              className="h-12 min-w-0 flex-1 rounded-xl border border-white/10 bg-slate-950/50 px-4 text-base uppercase tracking-wide text-slate-100 outline-none transition placeholder:normal-case placeholder:tracking-normal placeholder:text-slate-500 focus:border-cyan-400/60"
             />
-            <button
+            <motion.button
               type="submit"
               disabled={loading}
-              className="h-12 cursor-pointer rounded-xl bg-linear-to-r from-cyan-500 to-fuchsia-500 px-5 text-base font-semibold text-white shadow-lg shadow-cyan-500/20 transition hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300 disabled:cursor-not-allowed disabled:opacity-50 sm:px-6"
+              whileTap={{ scale: 0.96 }}
+              className="h-12 shrink-0 cursor-pointer rounded-xl bg-linear-to-r from-cyan-500 to-fuchsia-500 px-5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:px-6"
             >
-              {loading ? "Fetching..." : "Get price"}
-            </button>
+              {loading ? "…" : "Look up"}
+            </motion.button>
+
+            {/* Type-ahead dropdown — anchored under the input, only while focused. */}
+            {focused && results.length > 0 && (
+              <motion.div
+                initial={{ opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.14 }}
+                className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-2xl border border-white/10 bg-slate-900/95 p-1.5 shadow-2xl shadow-black/50 backdrop-blur-xl"
+              >
+                <p className="px-2.5 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                  Suggestions
+                </p>
+                {results.slice(0, 6).map((res) => (
+                  <button
+                    key={res.symbol}
+                    type="button"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      const symbol = sanitizeSymbol(res.symbol);
+                      setTicker(symbol);
+                      setFocused(false);
+                      void handleSubmit(undefined, symbol);
+                    }}
+                    className="flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition hover:bg-white/5"
+                  >
+                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-white/5 text-[11px] font-bold text-cyan-100 ring-1 ring-white/10">
+                      {res.symbol.slice(0, 2)}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-white">
+                        {res.symbol}
+                      </span>
+                      <span className="block truncate text-[11px] text-slate-400">
+                        {res.description}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </motion.div>
+            )}
           </form>
 
-          <div className="mt-4 space-y-2 text-sm text-slate-400">
-            <div className="flex items-center justify-between">
-              <p className="text-xs uppercase tracking-[0.25em] text-slate-500">
-                Suggestions
-              </p>
-              {searching && <p className="text-xs text-slate-500">Searching...</p>}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {results.slice(0, 6).map((res) => (
-                <button
-                  key={res.symbol}
-                  type="button"
-                  onClick={() => {
-                    const symbol = sanitizeSymbol(res.symbol);
-                    setTicker(symbol);
-                    void handleSubmit(undefined, symbol);
-                  }}
-                  className="cursor-pointer rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white"
-                >
-                  {res.symbol} · {res.description}
-                </button>
-              ))}
-              {!results.length && <p className="text-xs text-slate-500">No suggestions yet.</p>}
-            </div>
-            {topSuggestion && (
-              <p className="text-xs text-slate-500">
-                Tip: press enter to fetch {topSuggestion}
-              </p>
-            )}
-          </div>
+          {loading && (
+            <p className="relative mt-6 animate-pulse text-slate-300">
+              Contacting the market…
+            </p>
+          )}
 
-          <div className="mt-6 rounded-2xl border border-white/8 bg-white/2 p-5">
-            {!quote && !error && !loading && (
-              <p className="text-slate-400">
-                Search for a ticker to see the latest price.
-              </p>
-            )}
+          {error && !loading && (
+            <p className="relative mt-6 text-rose-300" role="alert">
+              {error}
+            </p>
+          )}
 
-            {loading && (
-              <p className="animate-pulse text-slate-300">
-                Contacting the market...
-              </p>
-            )}
+          {!quote && !error && !loading && (
+            <p className="relative mt-6 text-sm text-slate-400">
+              Search a ticker to see its performance and 6-month trend.
+            </p>
+          )}
 
-            {error && (
-              <p className="text-rose-300" role="alert">
-                {error}
-              </p>
-            )}
-
-            {quote && (
-              <div className="space-y-4">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3">
-                    <CompanyLogo
-                      symbol={quote.symbol}
-                      name={quote.name}
-                      size={48}
-                    />
-                    <div className="space-y-0.5">
-                      <p className="text-xs uppercase tracking-[0.3em] text-cyan-200">
-                        {quote.symbol}
-                      </p>
-                      {quote.name && (
-                        <p className="text-sm text-slate-300">{quote.name}</p>
-                      )}
-                      <p className="text-3xl font-bold tracking-tight text-white">
-                        ${quote.price.toFixed(2)}
-                      </p>
-                    </div>
-                  </div>
-                  <div className={`text-right text-lg font-semibold ${changeColor}`}>
-                    <p>
-                      {quote.change > 0 ? "▲" : quote.change < 0 ? "▼" : "•"}{" "}
-                      {quote.change.toFixed(2)}
-                    </p>
-                    <p className="text-sm text-slate-400">
-                      {quote.changePercent}
-                    </p>
-                    <p className="text-xs font-normal text-slate-500">
-                      vs previous close
-                    </p>
-                  </div>
+          {quote && !loading && (
+            <div className="relative mt-5 space-y-4">
+              {/* Identity + price */}
+              <div className="flex items-start gap-3">
+                <CompanyLogo
+                  symbol={quote.symbol}
+                  name={quote.name}
+                  logo={quote.logo}
+                  size={48}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-lg font-bold leading-tight text-white">
+                    {quote.symbol}
+                  </p>
+                  <p className="truncate text-xs text-slate-400">
+                    {quote.name || "—"}
+                    {quote.exchange ? ` · ${quote.exchange}` : ""}
+                  </p>
                 </div>
-                <div className="grid grid-cols-2 gap-2.5 text-sm sm:grid-cols-3">
+              </div>
+
+              <div className="flex items-end">
+                <span className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
+                  ${quote.price.toFixed(2)}
+                </span>
+              </div>
+
+              {/* Performance */}
+              {perf && (
+                <div className="grid grid-cols-3 gap-2.5">
                   {[
-                    { label: "Open", value: quote.open ? `$${quote.open.toFixed(2)}` : "—" },
-                    { label: "High", value: quote.high ? `$${quote.high.toFixed(2)}` : "—" },
-                    { label: "Low", value: quote.low ? `$${quote.low.toFixed(2)}` : "—" },
-                    {
-                      label: "Prev close",
-                      value: quote.previousClose
-                        ? `$${quote.previousClose.toFixed(2)}`
-                        : "—",
-                    },
-                    { label: "Currency", value: quote.currency ?? "—" },
-                    { label: "Exchange", value: quote.exchange ?? "—" },
-                  ].map((stat) => (
+                    { label: "1 month", v: perf.ret1m, hl: false },
+                    { label: "6 months", v: perf.ret6m, hl: true },
+                    { label: "1 year", v: perf.ret1y, hl: false },
+                  ].map((t) => (
                     <div
-                      key={stat.label}
-                      className="rounded-xl border border-white/5 bg-white/3 px-3 py-2"
+                      key={t.label}
+                      className={`rounded-2xl border px-3 py-2.5 ${
+                        t.hl
+                          ? "border-cyan-400/25 bg-cyan-500/10"
+                          : "border-white/5 bg-white/3"
+                      }`}
                     >
-                      <p className="text-[10px] uppercase tracking-wider text-slate-500">
-                        {stat.label}
+                      <p className="text-[10px] uppercase tracking-wider text-slate-400">
+                        {t.label}
                       </p>
-                      <p className="mt-0.5 font-semibold text-slate-100">
-                        {stat.value}
+                      <p
+                        className={`mt-0.5 text-sm font-semibold ${toneText(t.v)}`}
+                      >
+                        {fmtPct(t.v)}
                       </p>
                     </div>
                   ))}
                 </div>
-                <div className="rounded-2xl border border-white/8 bg-white/2 p-4">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-semibold text-slate-100">
-                      {trendLabel}
-                    </p>
-                    {historyLoading && (
-                      <span className="text-xs text-slate-400">Loading...</span>
+              )}
+
+              {/* AI 6-month analysis — expandable; the AI read is only generated
+                  on first expand. Kept above the chart so it's ATF on mobile. */}
+              <div className="overflow-hidden rounded-2xl border border-fuchsia-400/20 bg-fuchsia-500/8">
+                <button
+                  type="button"
+                  onClick={() => setAnalysisOpen((o) => !o)}
+                  aria-expanded={analysisOpen}
+                  className="flex w-full cursor-pointer items-center gap-2 px-3 py-3 text-left transition hover:bg-fuchsia-500/5"
+                >
+                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-linear-to-br from-cyan-400 via-fuchsia-500 to-indigo-500 text-sm shadow-sm shadow-black/30">
+                    📊
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-xs font-semibold uppercase tracking-wider text-fuchsia-100">
+                      6 month analysis
+                    </span>
+                    <span className="block truncate text-[11px] text-slate-400">
+                      {analysisOpen
+                        ? "AI read of the last 6 months"
+                        : "Tap to generate an AI read"}
+                    </span>
+                  </span>
+                  <span
+                    aria-hidden
+                    className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-200 transition-transform duration-200 ${
+                      analysisOpen ? "rotate-180" : ""
+                    }`}
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="3"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
+                  </span>
+                </button>
+                {analysisOpen && (
+                  <div className="px-3 pb-3">
+                    {take ? (
+                      <p className="text-sm leading-5 text-slate-100">
+                        <RichText text={take} />
+                      </p>
+                    ) : analysisDone ? (
+                      <p className="text-sm text-slate-400">
+                        No analysis available right now.
+                      </p>
+                    ) : (
+                      <p className="animate-pulse text-sm text-slate-400">
+                        Reading the 6-month chart…
+                      </p>
                     )}
                   </div>
-                  {historyError && (
-                    <p className="mt-2 text-sm text-rose-300" role="alert">
-                      {historyError}
-                    </p>
-                  )}
-                  {!historyError && historyLoading && (
-                    <p className="mt-2 text-sm text-slate-400">
-                      Fetching price history...
-                    </p>
-                  )}
-                  {!historyError && !historyLoading && history && (
-                    <div className="mt-3">
-                      <HistoryChart history={history} />
-                    </div>
-                  )}
-                  {!historyError && !historyLoading && !history && (
-                    <p className="mt-2 text-sm text-slate-400">
-                      Fetch a ticker to see its recent performance.
+                )}
+              </div>
+
+              {/* 6-month trend chart */}
+              <div className="rounded-2xl border border-white/5 bg-white/2 p-3">
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    6-month trend
+                  </p>
+                  {perf && (
+                    <p className={`text-xs font-semibold ${toneText(perf.ret6m)}`}>
+                      {fmtPct(perf.ret6m)}
+                      {perf.change6m != null
+                        ? ` (${perf.change6m >= 0 ? "+" : "−"}${fmtMoney(
+                            perf.change6m,
+                          )})`
+                        : ""}
                     </p>
                   )}
                 </div>
+                {historyLoading && !perf && (
+                  <p className="py-6 text-center text-sm text-slate-400">
+                    Loading price history…
+                  </p>
+                )}
+                {perf && perf.six.length > 1 && (
+                  <Sparkline
+                    points={perf.six.map((p) => ({ time: p.time, value: p.close }))}
+                    positive={(perf.ret6m ?? 0) >= 0}
+                    height={170}
+                    strokeWidth={2}
+                    showAxes
+                    className="w-full"
+                  />
+                )}
+                {!historyLoading && !perf && (
+                  <p className="py-6 text-center text-sm text-slate-400">
+                    Not enough history to chart.
+                  </p>
+                )}
               </div>
-            )}
-          </div>
+            </div>
+          )}
         </section>
       </main>
     </div>

@@ -42,6 +42,8 @@ type StockRow = {
   slug: string;
 };
 
+type SortDir = "desc" | "asc"; // desc = best first, asc = worst first
+
 function formatCurrency(value: number | null | undefined) {
   if (value == null || Number.isNaN(value)) return "—";
   return value.toLocaleString("en-US", {
@@ -79,10 +81,6 @@ function changeArrow(change: number | null) {
   return change > 0 ? "▲" : "▼";
 }
 
-function rankLabel(idx: number): string {
-  return ["🥇", "🥈", "🥉"][idx] ?? `${idx + 1}`;
-}
-
 /** Combine duplicate allocations of the same symbol within one investor. */
 function mergeHoldings(holdings: HoldingValue[]): HoldingValue[] {
   const bySymbol = new Map<string, HoldingValue>();
@@ -107,6 +105,9 @@ export default function StocksPage() {
   const [data, setData] = useState<PortfolioResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  const [filterSlug, setFilterSlug] = useState<string>("all");
+  const [filterOpen, setFilterOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -129,57 +130,80 @@ export default function StocksPage() {
 
   const rows = useMemo<StockRow[]>(() => {
     const investors = data?.investors ?? [];
-    return investors
-      .flatMap((inv) =>
-        mergeHoldings(inv.holdings || [])
-          .filter((h) => h.changePercent != null && h.status !== "closed")
-          .map((h) => {
-            const currentValue = h.currentValue ?? h.amountInvested ?? 0;
-            const invested = h.amountInvested ?? 0;
-            return {
-              key: `${inv.slug}-${h.symbol}`,
-              symbol: h.symbol,
-              name: h.name ?? null,
-              logo: h.logo ?? null,
-              invested,
-              currentValue,
-              changePercent: h.changePercent as number,
-              gain: currentValue - invested,
-              investorName: inv.name,
-              slug: inv.slug,
-            };
-          }),
-      )
-      .sort((a, b) => b.changePercent - a.changePercent);
-  }, [data]);
+    const base = investors.flatMap((inv) =>
+      mergeHoldings(inv.holdings || [])
+        .filter((h) => h.changePercent != null && h.status !== "closed")
+        .map((h) => {
+          const currentValue = h.currentValue ?? h.amountInvested ?? 0;
+          const invested = h.amountInvested ?? 0;
+          return {
+            key: `${inv.slug}-${h.symbol}`,
+            symbol: h.symbol,
+            name: h.name ?? null,
+            logo: h.logo ?? null,
+            invested,
+            currentValue,
+            changePercent: h.changePercent as number,
+            gain: currentValue - invested,
+            investorName: inv.name,
+            slug: inv.slug,
+          };
+        }),
+    );
+
+    return base.sort((a, b) =>
+      sortDir === "desc"
+        ? b.changePercent - a.changePercent
+        : a.changePercent - b.changePercent,
+    );
+  }, [data, sortDir]);
 
   const maxPct = useMemo(
     () => Math.max(...rows.map((r) => Math.abs(r.changePercent)), 1),
     [rows],
   );
 
+  // The investors available to filter by (each holder of a holding).
+  const investorOptions = useMemo(
+    () => (data?.investors ?? []).map((i) => ({ name: i.name, slug: i.slug })),
+    [data],
+  );
+  const activeFilterName =
+    filterSlug === "all"
+      ? "All"
+      : (investorOptions.find((o) => o.slug === filterSlug)?.name ?? "All");
+
+  // Filter the leaderboard down to a single holder.
+  const filtered = useMemo(
+    () =>
+      filterSlug === "all"
+        ? rows
+        : rows.filter((r) => r.slug === filterSlug),
+    [rows, filterSlug],
+  );
+
   return (
     <div className="app-backdrop min-h-screen overflow-x-clip text-slate-100">
       <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 px-4 pb-12 pt-4 sm:px-6">
-        <header className="glass rounded-2xl px-4 py-3 shadow-xl shadow-black/30 sm:px-5">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <span className="grid h-9 w-9 place-items-center rounded-xl bg-linear-to-br from-amber-400 via-fuchsia-500 to-indigo-500 text-base">
+        <header className="glass rounded-2xl px-3 py-3 shadow-xl shadow-black/30 sm:px-5">
+          <div className="flex items-center justify-between gap-2 sm:gap-3">
+            <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
+              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-linear-to-br from-amber-400 via-fuchsia-500 to-indigo-500 text-base">
                 🔥
               </span>
-              <div className="leading-tight">
-                <p className="gradient-text text-base font-bold tracking-tight">
-                  Stock leaderboard
+              <div className="min-w-0 leading-tight">
+                <p className="gradient-text truncate text-base font-bold tracking-tight">
+                  Stock Leaderboard
                 </p>
-                <p className="text-[10px] uppercase tracking-[0.22em] text-slate-400">
-                  Every holding, ranked by return
+                <p className="truncate text-[10px] uppercase tracking-[0.18em] text-slate-400 sm:tracking-[0.22em]">
+                  Every holding, ranked
                 </p>
               </div>
             </div>
             <MotionLink
               href="/"
               whileTap={{ scale: 0.94 }}
-              className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-1.5 text-sm font-semibold text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3.5 py-1.5 text-sm font-semibold text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white sm:px-4"
             >
               ← Back
             </MotionLink>
@@ -221,12 +245,85 @@ export default function StocksPage() {
 
         {!loading && !error && rows.length > 0 && (
           <section className="glass rounded-3xl p-4 shadow-2xl shadow-black/30 sm:p-6">
-            <div className="mb-4 flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
-              <span>{rows.length} holdings</span>
-              <span>By return</span>
+            <div className="mb-4 flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+                {filtered.length}
+                {filterSlug !== "all" ? ` of ${rows.length}` : ""} holdings
+              </span>
+              <div className="flex flex-wrap items-center gap-2">
+                {/* Filter-by-holder dropdown */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setFilterOpen((o) => !o)}
+                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-200 transition hover:-translate-y-0.5 hover:border-cyan-300/40 hover:text-white"
+                  >
+                    <span className="text-slate-400">Filter:</span>
+                    {activeFilterName}
+                    <span aria-hidden className="text-slate-400">
+                      ▾
+                    </span>
+                  </button>
+                  {filterOpen && (
+                    <>
+                      <button
+                        type="button"
+                        aria-hidden
+                        tabIndex={-1}
+                        className="fixed inset-0 z-10 cursor-default"
+                        onClick={() => setFilterOpen(false)}
+                      />
+                      <div className="absolute left-0 z-20 mt-1.5 max-h-64 w-44 overflow-auto rounded-xl border border-white/10 bg-slate-900/95 p-1 shadow-xl shadow-black/40 backdrop-blur">
+                        {[{ name: "All holders", slug: "all" }, ...investorOptions].map(
+                          (opt) => (
+                            <button
+                              key={opt.slug}
+                              type="button"
+                              onClick={() => {
+                                setFilterSlug(opt.slug);
+                                setFilterOpen(false);
+                              }}
+                              className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-1.5 text-left text-xs transition ${
+                                filterSlug === opt.slug
+                                  ? "bg-cyan-500/15 text-cyan-100"
+                                  : "text-slate-300 hover:bg-white/5 hover:text-white"
+                              }`}
+                            >
+                              <span className="truncate">{opt.name}</span>
+                              {filterSlug === opt.slug && (
+                                <span aria-hidden>✓</span>
+                              )}
+                            </button>
+                          ),
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSortDir((d) => (d === "desc" ? "asc" : "desc"))
+                  }
+                  aria-label={`Sorted ${
+                    sortDir === "desc" ? "best to worst" : "worst to best"
+                  } — tap to reverse`}
+                  className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white"
+                >
+                  {sortDir === "desc" ? "Best first" : "Worst first"}
+                  <span aria-hidden className="text-sm leading-none">
+                    {sortDir === "desc" ? "↓" : "↑"}
+                  </span>
+                </button>
+              </div>
             </div>
+            {filtered.length === 0 && (
+              <p className="py-6 text-center text-sm text-slate-500">
+                No holdings for {activeFilterName}.
+              </p>
+            )}
             <div className="space-y-2">
-              {rows.map((row, idx) => {
+              {filtered.map((row, idx) => {
                 const tone = toneClasses(row.changePercent);
                 const barPct = Math.max(
                   4,
@@ -255,8 +352,8 @@ export default function StocksPage() {
                     />
                     <div className="relative flex items-center justify-between gap-3">
                       <div className="flex min-w-0 items-center gap-3">
-                        <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full text-sm font-bold text-slate-300">
-                          {rankLabel(idx)}
+                        <span className="w-5 shrink-0 text-center text-sm font-bold tabular-nums text-slate-500">
+                          {idx + 1}
                         </span>
                         <CompanyLogo
                           symbol={row.symbol}
@@ -266,7 +363,7 @@ export default function StocksPage() {
                           delay={Math.min(idx, 8) * 60}
                           linkToLookup
                         />
-                        <div className="min-w-0 max-w-[6rem] sm:max-w-[8rem]">
+                        <div className="min-w-0 max-w-24 sm:max-w-32">
                           <p className="truncate text-sm font-semibold text-white">
                             {row.symbol}
                           </p>

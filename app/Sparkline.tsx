@@ -15,6 +15,9 @@ type Props = {
   strokeWidth?: number;
   /** Render light X (date) and Y (amount) axis labels around the chart. */
   showAxes?: boolean;
+  /** Optional benchmark series (e.g. S&P 500), drawn as a dashed line on the
+   *  same scale. Should share the main series' timestamps for clean overlay. */
+  benchmark?: Point[];
 };
 
 const PAD = 4;
@@ -55,12 +58,15 @@ export function Sparkline({
   fill = false,
   strokeWidth = 1.75,
   showAxes = false,
+  benchmark,
 }: Props) {
   const id = useId();
   const ballRef = useRef<HTMLSpanElement>(null);
   const clean = (points ?? []).filter((p) => Number.isFinite(p.value));
+  const benchClean = (benchmark ?? []).filter((p) => Number.isFinite(p.value));
 
   const values = clean.map((p) => p.value);
+  const benchValues = benchClean.map((p) => p.value);
   const valuesKey = values.join(",");
 
   useEffect(() => {
@@ -116,12 +122,23 @@ export function Sparkline({
 
   if (clean.length < 2) return null;
 
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  // Scale across both series so the benchmark overlay shares the y-axis.
+  const allValues = benchValues.length ? values.concat(benchValues) : values;
+  const min = Math.min(...allValues);
+  const max = Math.max(...allValues);
   const range = max - min || 1;
   const width = 100;
   const step = width / (clean.length - 1);
   const usable = height - PAD * 2;
+
+  const toPath = (vals: number[]) =>
+    vals
+      .map((v, i) => {
+        const x = (i / (vals.length - 1)) * width;
+        const y = PAD + (1 - (v - min) / range) * usable;
+        return `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`;
+      })
+      .join(" ");
 
   const coords = values.map((v, i) => {
     const x = i * step;
@@ -132,6 +149,8 @@ export function Sparkline({
   const line = coords
     .map(([x, y], i) => `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${y.toFixed(2)}`)
     .join(" ");
+
+  const benchLine = benchValues.length >= 2 ? toPath(benchValues) : null;
 
   const area = `${line} L ${width} ${height} L 0 ${height} Z`;
   const stroke = positive ? "#34d399" : "#fb7185";
@@ -172,6 +191,18 @@ export function Sparkline({
         vectorEffect="non-scaling-stroke"
       />
       <path d={area} fill={`url(#spark-${id})`} stroke="none" />
+      {benchLine && (
+        <path
+          d={benchLine}
+          fill="none"
+          stroke="rgba(148,163,184,0.65)"
+          strokeWidth={1.25}
+          strokeDasharray="3 3"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+          vectorEffect="non-scaling-stroke"
+        />
+      )}
       <path
         className="spark-line"
         d={line}

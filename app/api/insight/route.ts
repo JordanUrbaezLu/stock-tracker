@@ -54,7 +54,8 @@ function cacheKey(body: InsightRequest): string {
 const SYSTEM_PROMPT = `You write a single short, warm, personalized line of encouragement for an investor about their own stock portfolio, shown on a dashboard card.
 
 Rules:
-- One sentence, max ~18 words. Plain text only — no markdown, no surrounding quotes, no leading emoji.
+- One sentence, max ~18 words. No surrounding quotes, no leading emoji.
+- Use markdown **double-asterisk bold** for the investor's first name and any stock tickers (e.g. "**Alexa**", "**NVDA**"). Do not use any other markdown.
 - Sound genuine and specific: weave in a real number or ticker when it's notable.
 - Always be positive and encouraging, even when the portfolio is down — focus on the long game, consistency, or a bright spot. Never alarming.
 - Never give financial advice and never tell them to buy, sell, or hold anything. No predictions.
@@ -70,11 +71,12 @@ function fmtPct(n: number) {
 
 /** Deterministic, no-API encouragement so the card always has something warm to say. */
 function fallbackMessage(body: InsightRequest): string {
-  const first = (body.name ?? "there").trim().split(/\s+/)[0] || "there";
+  const name = (body.name ?? "there").trim().split(/\s+/)[0] || "there";
+  const first = `**${name}**`;
   const gainPct = body.gainPct ?? 0;
   const top = body.topHolding;
   if (top && (top.changePercent ?? 0) > 0) {
-    return `Nice momentum, ${first} — ${top.symbol} is up ${fmtPct(
+    return `Nice momentum, ${first} — **${top.symbol}** is up ${fmtPct(
       top.changePercent ?? 0,
     )} and leading the way.`;
   }
