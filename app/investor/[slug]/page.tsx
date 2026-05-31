@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from "motion/react";
 import { HoldingsList } from "../HoldingsList";
 import { PortfolioChat } from "../PortfolioChat";
 import { useAdmin } from "../../AdminContext";
+import { useSound } from "../../SoundContext";
 import { Sparkline } from "../../Sparkline";
 import { initials, avatarGradient } from "../../avatar";
 
@@ -144,6 +145,7 @@ export default function InvestorDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { isAdmin } = useAdmin();
+  const { play } = useSound();
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingHolding, setEditingHolding] = useState<HoldingValue | null>(null);
   const [saving, setSaving] = useState(false);
@@ -191,11 +193,12 @@ export default function InvestorDetail() {
   }, []);
 
   const openAddModal = useCallback(() => {
+    play("open");
     setModalMode("add");
     setEditingHolding(null);
     resetForm();
     setShowAddModal(true);
-  }, [resetForm]);
+  }, [resetForm, play]);
 
   const openEditModal = useCallback((holding: HoldingValue) => {
     setModalMode("edit");
@@ -433,6 +436,7 @@ export default function InvestorDetail() {
           <div className="relative flex items-center justify-between gap-4">
             <Link
               href="/"
+              onClick={() => play("nav")}
               className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white"
             >
               ← Back

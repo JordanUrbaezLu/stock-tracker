@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { useCallback, useEffect, useState } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import { WheelGesturesPlugin } from "embla-carousel-wheel-gestures";
+import { useSound } from "./SoundContext";
 
 type CarouselProps = {
   slides: ReactNode[];
@@ -46,6 +47,7 @@ export function Carousel({
   const [selected, setSelected] = useState(0);
   const [canPrev, setCanPrev] = useState(false);
   const [canNext, setCanNext] = useState(false);
+  const { play } = useSound();
 
   const sync = useCallback(() => {
     if (!embla) return;
@@ -56,14 +58,18 @@ export function Carousel({
 
   useEffect(() => {
     if (!embla) return;
-    sync();
-    embla.on("select", sync);
+    sync(); // initial state only — no sound on mount
+    const onSelect = () => {
+      sync();
+      play("swipe"); // user-driven slide change (drag, wheel, or dot)
+    };
+    embla.on("select", onSelect);
     embla.on("reInit", sync);
     return () => {
-      embla.off("select", sync);
+      embla.off("select", onSelect);
       embla.off("reInit", sync);
     };
-  }, [embla, sync]);
+  }, [embla, sync, play]);
 
   const count = slides.length;
   const multi = count > 1;

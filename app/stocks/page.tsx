@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { CompanyLogo } from "../CompanyLogo";
+import { useSound } from "../SoundContext";
 
 const MotionLink = motion.create(Link);
 
@@ -108,6 +109,7 @@ export default function StocksPage() {
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [filterSlug, setFilterSlug] = useState<string>("all");
   const [filterOpen, setFilterOpen] = useState(false);
+  const { play } = useSound();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -202,6 +204,7 @@ export default function StocksPage() {
             </div>
             <MotionLink
               href="/"
+              onClick={() => play("nav")}
               whileTap={{ scale: 0.94 }}
               className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3.5 py-1.5 text-sm font-semibold text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white sm:px-4"
             >
@@ -255,7 +258,10 @@ export default function StocksPage() {
                 <div className="relative">
                   <button
                     type="button"
-                    onClick={() => setFilterOpen((o) => !o)}
+                    onClick={() => {
+                      play(filterOpen ? "close" : "open");
+                      setFilterOpen((o) => !o);
+                    }}
                     className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-200 transition hover:-translate-y-0.5 hover:border-cyan-300/40 hover:text-white"
                   >
                     <span className="text-slate-400">Filter:</span>
@@ -280,6 +286,7 @@ export default function StocksPage() {
                               key={opt.slug}
                               type="button"
                               onClick={() => {
+                                play("toggle");
                                 setFilterSlug(opt.slug);
                                 setFilterOpen(false);
                               }}
@@ -302,9 +309,10 @@ export default function StocksPage() {
                 </div>
                 <button
                   type="button"
-                  onClick={() =>
-                    setSortDir((d) => (d === "desc" ? "asc" : "desc"))
-                  }
+                  onClick={() => {
+                    play("toggle");
+                    setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+                  }}
                   aria-label={`Sorted ${
                     sortDir === "desc" ? "best to worst" : "worst to best"
                   } — tap to reverse`}
@@ -333,6 +341,7 @@ export default function StocksPage() {
                   <MotionLink
                     key={row.key}
                     href={`/investor/${row.slug}`}
+                    onClick={() => play("nav")}
                     initial={{ opacity: 0, y: 12 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{

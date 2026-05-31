@@ -1,8 +1,9 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "motion/react";
 import { RichText } from "../RichText";
+import { useSound } from "../SoundContext";
 
 type ChatHolding = {
   symbol: string;
@@ -32,14 +33,41 @@ export function PortfolioChat({
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(false);
   const [qa, setQa] = useState<{ q: string; a: string }[]>([]);
+  // Typewriter reveal for the most recent answer: which item, and how many
+  // characters are currently shown.
+  const [typing, setTyping] = useState<{ index: number; shown: number } | null>(
+    null,
+  );
   const threadRef = useRef<HTMLDivElement>(null);
+  const { play } = useSound();
+
+  // Reveal the answer a few characters at a time for a live "typing" feel.
+  useEffect(() => {
+    if (!typing) return;
+    const full = qa[typing.index]?.a ?? "";
+    if (typing.shown >= full.length) return; // fully revealed — stop
+    const id = window.setTimeout(() => {
+      setTyping((t) => {
+        if (!t) return t;
+        const len = qa[t.index]?.a.length ?? 0;
+        return { ...t, shown: Math.min(len, t.shown + 3) };
+      });
+      threadRef.current?.scrollTo({ top: 1e9 });
+    }, 16);
+    return () => window.clearTimeout(id);
+  }, [typing, qa]);
 
   const ask = async (raw: string) => {
     const question = raw.trim();
     if (!question || loading) return;
     setQ("");
     setLoading(true);
-    setQa((prev) => [...prev, { q: question, a: "" }]);
+    play("send");
+    let pendingIndex = 0;
+    setQa((prev) => {
+      pendingIndex = prev.length;
+      return [...prev, { q: question, a: "" }];
+    });
     try {
       const res = await fetch("/api/ask", {
         method: "POST",
@@ -70,9 +98,11 @@ export function PortfolioChat({
       });
       const json = (await res.json()) as { answer?: string; error?: string };
       const a = json.answer || json.error || "No answer.";
+      play("receive");
       setQa((prev) =>
         prev.map((item, i) => (i === prev.length - 1 ? { ...item, a } : item)),
       );
+      setTyping({ index: pendingIndex, shown: 0 }); // begin typewriter reveal
     } catch {
       setQa((prev) =>
         prev.map((item, i) =>
@@ -118,28 +148,52 @@ export function PortfolioChat({
       {qa.length > 0 && (
         <div
           ref={threadRef}
-          className="relative mt-4 max-h-80 space-y-3 overflow-y-auto pr-1"
+          className="relative mt-4 max-h-80 space-y-3 overflow-y-auto px-0.5 pb-0.5 pt-1.5"
         >
-          {qa.map((item, i) => (
-            <div key={i} className="space-y-1.5">
-              <p className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm bg-cyan-500/15 px-3 py-1.5 text-sm text-cyan-50 ring-1 ring-cyan-400/20">
-                {item.q}
-              </p>
-              {item.a ? (
-                <motion.p
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="w-fit max-w-[92%] rounded-2xl rounded-bl-sm bg-white/5 px-3 py-2 text-sm leading-5 text-slate-100 ring-1 ring-white/10"
-                >
-                  <RichText text={item.a} />
-                </motion.p>
-              ) : (
-                <p className="w-fit rounded-2xl rounded-bl-sm bg-white/5 px-3 py-2 text-sm text-slate-400 ring-1 ring-white/10">
-                  Thinking…
+          {qa.map((item, i) => {
+            const isTyping = !!typing && typing.index === i;
+            const shown =
+              isTyping && typing ? item.a.slice(0, typing.shown) : item.a;
+            const stillTyping =
+              isTyping && typing ? typing.shown < item.a.length : false;
+            return (
+              <div key={i} className="space-y-1.5">
+                <p className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm bg-cyan-500/15 px-3 py-1.5 text-sm text-cyan-50 ring-1 ring-cyan-400/20">
+                  {item.q}
                 </p>
-              )}
-            </div>
-          ))}
+                {item.a ? (
+                  <motion.p
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="w-fit max-w-[92%] rounded-2xl rounded-bl-sm bg-white/5 px-3 py-2 text-sm leading-5 text-slate-100 ring-1 ring-white/10"
+                  >
+                    <RichText text={shown} />
+                    {stillTyping && (
+                      <span className="ml-0.5 inline-block h-3.5 w-0.5 translate-y-0.5 animate-pulse bg-fuchsia-300/90 align-middle" />
+                    )}
+                  </motion.p>
+                ) : (
+                  <div className="flex w-fit items-center gap-1.5 rounded-2xl rounded-bl-sm bg-white/5 px-3.5 py-3 ring-1 ring-white/10">
+                    <span className="sr-only">Thinking…</span>
+                    {[0, 1, 2].map((n) => (
+                      <motion.span
+                        key={n}
+                        aria-hidden
+                        className="h-1.5 w-1.5 rounded-full bg-fuchsia-300/90"
+                        animate={{ y: [0, -4, 0], opacity: [0.4, 1, 0.4] }}
+                        transition={{
+                          duration: 0.9,
+                          repeat: Infinity,
+                          delay: n * 0.15,
+                          ease: "easeInOut",
+                        }}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

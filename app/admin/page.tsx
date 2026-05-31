@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useAdmin } from "../AdminContext";
+import { useSound } from "../SoundContext";
 
 export default function AdminPage() {
   const { isAdmin, setIsAdmin, refresh, clearAdmin } = useAdmin();
+  const { play } = useSound();
   const [password, setPassword] = useState("");
   const [status, setStatus] = useState<"checking" | "idle" | "success" | "error" | "loading">(
     "checking",
@@ -30,8 +32,10 @@ export default function AdminPage() {
       }
       setIsAdmin(true);
       setStatus("success");
+      play("success");
     } catch {
       setStatus("error");
+      play("error");
     }
   };
 
@@ -41,6 +45,7 @@ export default function AdminPage() {
         <div>
           <Link
             href="/"
+            onClick={() => play("nav")}
             className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white"
           >
             ← Back

@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { CompanyLogo } from "../CompanyLogo";
+import { useSound } from "../SoundContext";
 
 type Holding = {
   symbol: string;
@@ -77,6 +78,7 @@ export function HoldingsList({
   const [sort, setSort] = useState<"return" | "value" | "name">("return");
   const [status, setStatus] = useState<"all" | "open" | "sold">("all");
   const [sortOpen, setSortOpen] = useState(false);
+  const { play } = useSound();
 
   const valueOf = (h: Holding) =>
     h.status === "closed"
@@ -133,7 +135,10 @@ export function HoldingsList({
               <button
                 key={s}
                 type="button"
-                onClick={() => setStatus(s)}
+                onClick={() => {
+                  play("toggle");
+                  setStatus(s);
+                }}
                 className={`cursor-pointer rounded-full px-3 py-1 font-medium capitalize transition ${
                   status === s
                     ? "bg-cyan-500/20 text-cyan-100"
@@ -148,7 +153,10 @@ export function HoldingsList({
           <div className="relative">
             <button
               type="button"
-              onClick={() => setSortOpen((o) => !o)}
+              onClick={() => {
+                play(sortOpen ? "close" : "open");
+                setSortOpen((o) => !o);
+              }}
               className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-cyan-300/40 hover:text-white"
             >
               <span className="text-slate-400">Sort:</span>
@@ -172,6 +180,7 @@ export function HoldingsList({
                       key={s}
                       type="button"
                       onClick={() => {
+                        play("toggle");
                         setSort(s);
                         setSortOpen(false);
                       }}

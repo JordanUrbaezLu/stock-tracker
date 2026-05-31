@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useAdmin } from "./AdminContext";
+import { useSound } from "./SoundContext";
+import { SoundToggle } from "./SoundToggle";
 import { Sparkline } from "./Sparkline";
 import { CompanyLogo } from "./CompanyLogo";
 import { AnimatedNumber } from "./AnimatedNumber";
@@ -350,6 +352,7 @@ function HoldingRow({
 }
 
 function InvestorCard({ investor }: { investor: InvestorValue }) {
+  const { play } = useSound();
   const originalGain = investor.currentValue - investor.originalAmountInvested;
   const gainPct = investor.originalAmountInvested
     ? (originalGain / investor.originalAmountInvested) * 100
@@ -408,6 +411,7 @@ function InvestorCard({ investor }: { investor: InvestorValue }) {
     <Link
       href={`/investor/${investor.slug}`}
       data-card-link
+      onClick={() => play("nav")}
       className="group block h-full focus:outline-none"
       aria-label={`Open ${investor.name}'s portfolio`}
     >
@@ -625,6 +629,7 @@ function LeaderboardSlide({
   board: Board;
   investors: InvestorValue[];
 }) {
+  const { play } = useSound();
   const ranked = [...investors].sort(board.sort);
   const maxMetric = Math.max(
     ...ranked.map((i) => Math.abs(board.metric(i))),
@@ -652,6 +657,7 @@ function LeaderboardSlide({
             <MotionLink
               key={inv.slug}
               href={`/investor/${inv.slug}`}
+              onClick={() => play("nav")}
               {...rowEntrance(idx)}
               whileHover={{ x: 3 }}
               whileTap={{ scale: 0.98 }}
@@ -699,6 +705,7 @@ function LeaderboardSlide({
 
 /** Best-performing individual holdings across everyone (one owner may sweep). */
 function TopHoldingsSlide({ investors }: { investors: InvestorValue[] }) {
+  const { play } = useSound();
   const rows = investors
     .flatMap((inv) =>
       mergeHoldings(inv.holdings || [])
@@ -731,6 +738,7 @@ function TopHoldingsSlide({ investors }: { investors: InvestorValue[] }) {
         </div>
         <MotionLink
           href="/stocks"
+          onClick={() => play("nav")}
           whileHover={{ x: 2 }}
           whileTap={{ scale: 0.95 }}
           className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] font-semibold text-cyan-200 transition hover:border-cyan-300/50 hover:text-white"
@@ -751,6 +759,7 @@ function TopHoldingsSlide({ investors }: { investors: InvestorValue[] }) {
             <MotionLink
               key={row.key}
               href={`/investor/${row.slug}`}
+              onClick={() => play("nav")}
               {...rowEntrance(idx)}
               whileHover={{ x: 3 }}
               whileTap={{ scale: 0.98 }}
@@ -958,6 +967,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const { isAdmin } = useAdmin();
+  const { play } = useSound();
   const [showAddInvestor, setShowAddInvestor] = useState(false);
   const [newInvestorName, setNewInvestorName] = useState("");
   const [creating, setCreating] = useState(false);
@@ -1013,15 +1023,17 @@ export default function Home() {
       }
       setShowAddInvestor(false);
       setNewInvestorName("");
+      play("success");
       await loadPortfolios();
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Unable to create investor.";
       setCreateError(message);
+      play("error");
     } finally {
       setCreating(false);
     }
-  }, [newInvestorName, loadPortfolios, isAdmin]);
+  }, [newInvestorName, loadPortfolios, isAdmin, play]);
 
   const rawInvestors = data?.investors ?? [];
   // Leaderboard: best return first, so the front of the carousel is "who's winning".
@@ -1061,24 +1073,30 @@ export default function Home() {
   })();
 
   // One-time celebration when the portfolio first loads in the green.
+  // (Audio only fires if the context is already unlocked — browsers block
+  // sound until the first user gesture, so a cold load stays silent.)
   useEffect(() => {
     if (loading || error || celebrated.current) return;
     if (count > 0 && groupGain > 0) {
       celebrated.current = true;
-      const t = setTimeout(() => celebrate(), 350);
+      const t = setTimeout(() => {
+        celebrate();
+        play("success");
+      }, 350);
       return () => clearTimeout(t);
     }
-  }, [loading, error, count, groupGain]);
+  }, [loading, error, count, groupGain, play]);
 
   return (
     <div className="app-backdrop min-h-screen overflow-x-clip text-slate-100">
       <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-5 px-4 pb-10 pt-3 sm:px-6 sm:pt-4">
         <header className="glass rounded-2xl px-4 py-3 shadow-xl shadow-black/30 sm:px-5">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-center gap-3">
-              <span className="grid h-9 w-9 place-items-center rounded-xl bg-linear-to-br from-cyan-400 via-fuchsia-500 to-indigo-500 text-base">
-                📈
-              </span>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <span className="grid h-9 w-9 place-items-center rounded-xl bg-linear-to-br from-cyan-400 via-fuchsia-500 to-indigo-500 text-base">
+                  📈
+                </span>
               <div className="leading-tight">
                 <p className="gradient-text text-base font-bold tracking-tight">
                   Stock Portfolio
@@ -1106,9 +1124,12 @@ export default function Home() {
                 </p>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-200">
+            <SoundToggle />
+          </div>
+          <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-200">
               <MotionLink
                 href="/lookup"
+                onClick={() => play("nav")}
                 whileTap={{ scale: 0.95 }}
                 whileHover={{ y: -2 }}
                 className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1 pl-1.5 pr-3.5 backdrop-blur transition hover:border-cyan-300/50 hover:text-white hover:shadow-lg hover:shadow-cyan-500/15"
@@ -1120,6 +1141,7 @@ export default function Home() {
               </MotionLink>
               <MotionLink
                 href="/admin"
+                onClick={() => play("nav")}
                 whileTap={{ scale: 0.95 }}
                 whileHover={{ y: -2 }}
                 className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1 pl-1.5 pr-3.5 backdrop-blur transition hover:border-fuchsia-300/50 hover:text-white hover:shadow-lg hover:shadow-fuchsia-500/15"
@@ -1132,7 +1154,10 @@ export default function Home() {
               {isAdmin && (
                 <motion.button
                   type="button"
-                  onClick={() => setShowAddInvestor(true)}
+                  onClick={() => {
+                    play("open");
+                    setShowAddInvestor(true);
+                  }}
                   whileTap={{ scale: 0.95 }}
                   whileHover={{ y: -2 }}
                   className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-500/10 py-1 pl-1.5 pr-3.5 text-emerald-100 transition hover:border-emerald-300/60 hover:text-white hover:shadow-lg hover:shadow-emerald-500/15"
