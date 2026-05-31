@@ -24,7 +24,9 @@ export async function GET(request: NextRequest) {
 
   const normalized = symbol.toUpperCase();
   const to = Math.floor(Date.now() / 1000);
-  const from = to - 370 * ONE_DAY; // ~1 year of split/dividend-adjusted daily bars
+  // ~5 years of split/dividend-adjusted daily bars (paginated). The lookup page
+  // slices this down to the chosen timespan; newer listings just return less.
+  const from = to - 1900 * ONE_DAY;
 
   try {
     let history = await fetchDailyBarsOne(normalized, from, to);
