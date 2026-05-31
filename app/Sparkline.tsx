@@ -2,6 +2,7 @@
 
 import { useEffect, useId, useRef } from "react";
 import type { CSSProperties } from "react";
+import { useSound } from "./SoundContext";
 
 type Point = { time: number; value: number };
 
@@ -62,6 +63,7 @@ export function Sparkline({
 }: Props) {
   const id = useId();
   const ballRef = useRef<HTMLSpanElement>(null);
+  const { play } = useSound();
   const clean = (points ?? []).filter((p) => Number.isFinite(p.value));
   const benchClean = (benchmark ?? []).filter((p) => Number.isFinite(p.value));
 
@@ -87,7 +89,7 @@ export function Sparkline({
     const mx = Math.max(...vals);
     const rng = mx - mn || 1;
     const usable = height - PAD * 2;
-    const duration = 3594; // ~3.6s per pulse (15% slower than prior)
+    const duration = 5094; // ~5.1s per pulse (spaced out by +1.5s)
     const sweep = 0.4; // ~1s of travel, then it rests at the tip and fades
     const fadeEnd = 0.54;
 
@@ -117,8 +119,21 @@ export function Sparkline({
       iterations: Infinity,
       easing: "linear",
     });
-    return () => anim.cancel();
-  }, [valuesKey, height]);
+
+    // A whisper tick each time the pulse reaches the tip of the line, synced to
+    // the sweep so the sound matches the motion. Muted/locked audio is a no-op.
+    let tickTimer: number | undefined;
+    const startTick = window.setTimeout(() => {
+      play("pulse");
+      tickTimer = window.setInterval(() => play("pulse"), duration);
+    }, sweep * duration);
+
+    return () => {
+      anim.cancel();
+      window.clearTimeout(startTick);
+      if (tickTimer) window.clearInterval(tickTimer);
+    };
+  }, [valuesKey, height, play]);
 
   if (clean.length < 2) return null;
 

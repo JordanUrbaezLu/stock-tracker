@@ -15,6 +15,7 @@ import { motion } from "motion/react";
 import { CompanyLogo } from "../CompanyLogo";
 import { Sparkline } from "../Sparkline";
 import { RichText } from "../RichText";
+import { useSound } from "../SoundContext";
 
 const MotionLink = motion.create(Link);
 
@@ -92,7 +93,9 @@ function sanitizeSymbol(raw: string) {
 function LookupContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { play, startSearching, stopSearching } = useSound();
   const lastLoaded = useRef<string | null>(null);
+  const resultToneFor = useRef<string | null>(null);
 
   const urlSymbol = sanitizeSymbol(
     searchParams.get("symbol") ?? searchParams.get("ticker") ?? "",
@@ -184,6 +187,7 @@ function LookupContent() {
     overrideSymbol?: string,
   ) => {
     event?.preventDefault();
+    play("send");
     await loadQuote(overrideSymbol ?? ticker, true);
   };
 
@@ -251,6 +255,7 @@ function LookupContent() {
     const controller = new AbortController();
     setTake(null);
     setAnalysisDone(false);
+    startSearching(); // looped "analyzing" motif while we wait
     fetch("/api/stock-take", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -274,9 +279,24 @@ function LookupContent() {
         if (j) setTake(j.read ?? j.note ?? null);
       })
       .catch(() => null)
-      .finally(() => setAnalysisDone(true));
-    return () => controller.abort();
-  }, [analysisOpen, quote, perf, span]);
+      .finally(() => {
+        setAnalysisDone(true);
+        stopSearching();
+      });
+    return () => {
+      controller.abort();
+      stopSearching();
+    };
+  }, [analysisOpen, quote, perf, span, startSearching, stopSearching]);
+
+  // Payoff tone once a looked-up stock's data lands — a coin for a winner,
+  // a soft tap otherwise. Once per symbol (so changing timespans is quiet).
+  useEffect(() => {
+    if (!quote || !perf) return;
+    if (resultToneFor.current === quote.symbol) return;
+    resultToneFor.current = quote.symbol;
+    play((perf.spanReturn ?? 0) >= 0 ? "coin" : "tap");
+  }, [quote, perf, play]);
 
   return (
     <div className="app-backdrop min-h-screen overflow-x-clip text-slate-100">
@@ -298,6 +318,7 @@ function LookupContent() {
             </div>
             <MotionLink
               href="/"
+              onClick={() => play("nav")}
               whileTap={{ scale: 0.95 }}
               className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3.5 py-1.5 text-sm font-semibold text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white sm:px-4"
             >
@@ -446,7 +467,25 @@ function LookupContent() {
                       <button
                         key={s.key}
                         type="button"
-                        onClick={() => setSpan(s.key)}
+                        onClick={() => {
+                          const pct = perf?.returns[s.key] ?? null;
+                          play(
+                            pct == null
+                              ? "toggle"
+                              : pct >= 500
+                                ? "gainHigh"
+                                : pct >= 50
+                                  ? "gainMid"
+                                  : pct >= 0
+                                    ? "gainLow"
+                                    : pct > -25
+                                      ? "lossLow"
+                                      : pct > -50
+                                        ? "lossMid"
+                                        : "lossHigh",
+                          );
+                          setSpan(s.key);
+                        }}
                         aria-pressed={active}
                         className={`cursor-pointer rounded-2xl border px-2 py-2.5 text-left transition ${
                           active
@@ -473,7 +512,10 @@ function LookupContent() {
               <div className="overflow-hidden rounded-2xl border border-fuchsia-400/20 bg-fuchsia-500/8">
                 <button
                   type="button"
-                  onClick={() => setAnalysisOpen((o) => !o)}
+                  onClick={() => {
+                    play(analysisOpen ? "close" : "open");
+                    setAnalysisOpen((o) => !o);
+                  }}
                   aria-expanded={analysisOpen}
                   className="flex w-full cursor-pointer items-center gap-2 px-3 py-3 text-left transition hover:bg-fuchsia-500/5"
                 >

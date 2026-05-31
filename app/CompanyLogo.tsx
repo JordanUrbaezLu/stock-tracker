@@ -3,6 +3,7 @@
 import { useState, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import { fmpLogoUrl } from "@/lib/alpaca";
+import { useSound } from "./SoundContext";
 
 type Props = {
   symbol: string;
@@ -29,6 +30,7 @@ export function CompanyLogo({
   linkToLookup = false,
 }: Props) {
   const router = useRouter();
+  const { play } = useSound();
   // Try the provided logo (Finnhub) first, then FMP's CDN, then a monogram.
   const [failed, setFailed] = useState<Record<string, boolean>>({});
   const candidates = [logo, fmpLogoUrl(symbol)].filter(
@@ -87,6 +89,7 @@ export function CompanyLogo({
   const goLookup = (e: MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
+    play("nav");
     router.push(`/lookup?symbol=${encodeURIComponent(symbol.toUpperCase())}`);
   };
 
