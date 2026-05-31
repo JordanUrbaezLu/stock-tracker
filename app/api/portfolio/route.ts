@@ -2,6 +2,14 @@ import { NextResponse } from "next/server";
 import fs from "fs/promises";
 import path from "path";
 import clientPromise from "@/lib/mongodb";
+import {
+  alpacaConfigured,
+  fetchAsset,
+  fetchDailyBars,
+  fetchSnapshots,
+  fmpLogoUrl,
+} from "@/lib/alpaca";
+import { fetchFinnhubLogos } from "@/lib/logos";
 
 type SoldSeed = { date?: string; amount?: number; shares?: number };
 
@@ -17,31 +25,6 @@ type InvestorSeed = {
     allocationIndex?: number;
     sold?: SoldSeed;
   }[];
-};
-
-type CandleResponse = {
-  c?: number[];
-  t?: number[];
-  s?: string;
-};
-
-type FinnhubQuote = {
-  c: number | null;
-  d: number | null;
-  dp: number | null;
-  h: number | null;
-  l: number | null;
-  o: number | null;
-  pc: number | null;
-  t: number | null;
-  [key: string]: unknown;
-};
-
-type FinnhubProfile = {
-  name?: string | null;
-  ticker?: string | null;
-  logo?: string | null;
-  [key: string]: unknown;
 };
 
 type SoldRaw = {
@@ -88,6 +71,7 @@ type SymbolHistoryPoint = { time: number; close: number };
 
 type SymbolData = {
   currentPrice: number | null;
+  prevClose: number | null;
   startPrice: number | null;
   history: SymbolHistoryPoint[];
   name?: string | null;
@@ -105,6 +89,9 @@ type HoldingValue = {
   currentValue: number | null;
   change: number | null;
   changePercent: number | null;
+  // Today's move (current price vs previous close) for the open position.
+  dayChange?: number | null;
+  dayChangePercent?: number | null;
   dateInvested?: string | null;
   history: { time: number; value: number }[];
   allocationIndex?: number;
@@ -125,131 +112,17 @@ type InvestorValue = {
   currentValue: number;
   change: number;
   changePercent: number;
+  // Today's aggregate move across open holdings (current vs previous close).
+  dayChange: number;
+  dayChangePercent: number;
+  // Alpha League: return vs the S&P 500 (SPY) since this investor's inception.
+  spyReturn: number | null; // SPY's % return over the same window
+  alphaSpy: number | null; // investor return % minus spyReturn
+  // SPY's path indexed to this portfolio's starting value (for chart overlay).
+  benchmarkHistory: { time: number; value: number }[];
   holdings: HoldingValue[];
   valueHistory: { time: number; value: number }[];
 };
-
-const QUOTE_URL = "https://finnhub.io/api/v1/quote";
-const CANDLE_URL = "https://finnhub.io/api/v1/stock/candle";
-const PROFILE_URL = "https://finnhub.io/api/v1/stock/profile2";
-
-async function fetchQuote(
-  symbol: string,
-  apiKey: string,
-): Promise<FinnhubQuote | null> {
-  const url = `${QUOTE_URL}?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`;
-  try {
-    const response = await fetch(url, { next: { revalidate: 0 } });
-    if (!response.ok) return null;
-    return (await response.json()) as FinnhubQuote;
-  } catch (error) {
-    console.error("Quote fetch failed", { symbol, error });
-    return null;
-  }
-}
-
-async function fetchCandle(
-  symbol: string,
-  from: number,
-  to: number,
-  apiKey: string,
-): Promise<SymbolHistoryPoint[]> {
-  const url = `${CANDLE_URL}?symbol=${encodeURIComponent(symbol)}&resolution=D&from=${from}&to=${to}&token=${apiKey}`;
-  try {
-    const response = await fetch(url, { next: { revalidate: 300 } });
-    if (!response.ok) return [];
-    const data = (await response.json()) as CandleResponse;
-    if (data.s !== "ok" || !data.c || !data.t) return [];
-    return data.t.map((time, index) => ({
-      time,
-      close: data.c?.[index] ?? 0,
-    }));
-  } catch (error) {
-    console.error("Candle fetch failed", { symbol, error });
-    return [];
-  }
-}
-
-const YAHOO_CHART_URL = "https://query1.finance.yahoo.com/v8/finance/chart/";
-
-type YahooChartResponse = {
-  chart?: {
-    result?: Array<{
-      timestamp?: number[];
-      indicators?: { quote?: Array<{ close?: (number | null)[] }> };
-    }> | null;
-    error?: unknown;
-  };
-};
-
-/**
- * Yahoo Finance exposes free, keyless daily history. Returns ascending daily
- * closes within [from, to] (epoch seconds), dropping non-trading null gaps.
- */
-async function fetchYahooHistory(
-  symbol: string,
-  from: number,
-  to: number,
-): Promise<SymbolHistoryPoint[]> {
-  const url = `${YAHOO_CHART_URL}${encodeURIComponent(
-    symbol,
-  )}?period1=${from}&period2=${to}&interval=1d`;
-  try {
-    const response = await fetch(url, {
-      next: { revalidate: 1800 },
-      headers: { "User-Agent": "Mozilla/5.0 (stock-tracker)" },
-    });
-    if (!response.ok) return [];
-    const data = (await response.json()) as YahooChartResponse;
-    const result = data.chart?.result?.[0];
-    const timestamps = result?.timestamp;
-    const closes = result?.indicators?.quote?.[0]?.close;
-    if (!timestamps?.length || !closes?.length) return [];
-    const points: SymbolHistoryPoint[] = [];
-    timestamps.forEach((time, i) => {
-      const close = closes[i];
-      if (typeof close === "number" && Number.isFinite(close)) {
-        points.push({ time, close });
-      }
-    });
-    return points;
-  } catch (error) {
-    console.error("Yahoo history fetch failed", { symbol, error });
-    return [];
-  }
-}
-
-/**
- * Daily history with graceful fallback: Yahoo first (free/keyless), then
- * Finnhub candles (premium-gated on many keys, hence the fallback order).
- */
-async function fetchHistory(
-  symbol: string,
-  from: number,
-  to: number,
-  apiKey: string,
-): Promise<SymbolHistoryPoint[]> {
-  const yahoo = await fetchYahooHistory(symbol, from, to);
-  if (yahoo.length) return yahoo;
-  return fetchCandle(symbol, from, to, apiKey);
-}
-
-async function fetchProfile(
-  symbol: string,
-  apiKey: string,
-): Promise<FinnhubProfile | null> {
-  const url = `${PROFILE_URL}?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`;
-  try {
-    const response = await fetch(url, { next: { revalidate: 600 } });
-    if (!response.ok) return null;
-    const data = (await response.json()) as FinnhubProfile;
-    if (!data || (!data.name && !data.ticker)) return null;
-    return data;
-  } catch (error) {
-    console.error("Profile fetch failed", { symbol, error });
-    return null;
-  }
-}
 
 function getStartPriceForDate(
   history: SymbolHistoryPoint[],
@@ -372,11 +245,9 @@ function slugify(name: string) {
 }
 
 export async function GET() {
-  const apiKey = process.env.FINNHUB_API_KEY;
-
-  if (!apiKey) {
+  if (!alpacaConfigured()) {
     return NextResponse.json(
-      { error: "Finnhub API key not configured." },
+      { error: "Market data API not configured." },
       { status: 500 },
     );
   }
@@ -487,10 +358,12 @@ export async function GET() {
   const earliestStartMs = investmentTimestamps.length
     ? Math.min(...investmentTimestamps)
     : Date.now();
-  // Background card graph reflects roughly the last month of progress; pull a
-  // little extra (35d) so weekends/holidays still leave ~22 trading points.
-  const monthAgoSec = Math.floor((Date.now() - 35 * 86_400_000) / 1000);
-  const from = Math.max(Math.floor(earliestStartMs / 1000), monthAgoSec);
+  // Graphs cover up to the last 6 months of progress (the investor detail page
+  // shows the full span); pull a little extra (185d) so the window comfortably
+  // spans ~6 calendar months of trading days. The home cards slice this down to
+  // their last ~30 days client-side for the "30D trend".
+  const sixMonthsAgoSec = Math.floor((Date.now() - 185 * 86_400_000) / 1000);
+  const from = Math.max(Math.floor(earliestStartMs / 1000), sixMonthsAgoSec);
   const to = Math.floor(Date.now() / 1000);
 
   const symbols = Array.from(
@@ -501,21 +374,26 @@ export async function GET() {
     ),
   );
 
-  const [quotes, histories, profiles] = await Promise.all([
-    Promise.all(symbols.map((symbol) => fetchQuote(symbol, apiKey))),
-    Promise.all(symbols.map((symbol) => fetchHistory(symbol, from, to, apiKey))),
-    Promise.all(symbols.map((symbol) => fetchProfile(symbol, apiKey))),
+  // Alpaca: batched snapshots (live price + previous close), batched adjusted
+  // daily bars (history), and per-symbol asset metadata (names). Logos come
+  // from Finnhub's profile API (preferred look), falling back to FMP per symbol.
+  const [snapshots, barsMap, assets, finnhubLogos] = await Promise.all([
+    fetchSnapshots(symbols),
+    fetchDailyBars(symbols, from, to),
+    Promise.all(symbols.map((symbol) => fetchAsset(symbol))),
+    fetchFinnhubLogos(symbols),
   ]);
-  console.log("[portfolio] finnhub responses", {
+  const assetBySymbol = new Map(
+    assets
+      .filter((a): a is NonNullable<typeof a> => a !== null)
+      .map((a) => [a.symbol.toUpperCase(), a] as const),
+  );
+  console.log("[portfolio] alpaca responses", {
     symbols,
-    quotes: quotes.map((q, i) => ({ symbol: symbols[i], price: q?.c ?? null })),
-    historyLengths: histories.map((h, i) => ({
-      symbol: symbols[i],
-      points: h?.length ?? 0,
-    })),
-    profiles: profiles.map((p, i) => ({
-      symbol: symbols[i],
-      name: p?.name ?? null,
+    prices: symbols.map((s) => ({ symbol: s, price: snapshots.get(s)?.price ?? null })),
+    historyLengths: symbols.map((s) => ({
+      symbol: s,
+      points: barsMap.get(s)?.length ?? 0,
     })),
   });
 
@@ -534,28 +412,71 @@ export async function GET() {
 
   const symbolData = new Map<string, SymbolData>();
 
-  symbols.forEach((symbol, index) => {
-    const history = histories[index] ?? [];
-    const quote = quotes[index];
-    const profile = profiles[index];
+  symbols.forEach((symbol) => {
+    const history = barsMap.get(symbol) ?? [];
+    const snap = snapshots.get(symbol);
+    const asset = assetBySymbol.get(symbol);
     const baselinePrice = priceFromFile.get(symbol) ?? null;
 
     const startPrice =
       getStartPriceForDate(history, from) ?? baselinePrice ?? null;
     const currentPrice =
-      (quote?.c && quote.c > 0 ? quote.c : null) ??
+      (snap?.price && snap.price > 0 ? snap.price : null) ??
       history.at(-1)?.close ??
       baselinePrice ??
       null;
 
     symbolData.set(symbol, {
       currentPrice,
+      prevClose: snap?.prevClose ?? null,
       startPrice,
       history,
-      name: profile?.name ?? null,
-      logo: typeof profile?.logo === "string" ? profile.logo : null,
+      name: asset?.name ?? null,
+      logo: finnhubLogos.get(symbol) ?? fmpLogoUrl(symbol),
     });
   });
+
+  // Alpha League benchmark: SPY (S&P 500) over the widest window we need —
+  // from the earliest investment to now — so we can price it at each
+  // investor's inception and overlay it on the charts.
+  const benchFrom = Math.min(Math.floor(earliestStartMs / 1000), from);
+  const [benchBars, benchSnaps] = await Promise.all([
+    fetchDailyBars(["SPY"], benchFrom, to),
+    fetchSnapshots(["SPY"]),
+  ]);
+  const spyBars = benchBars.get("SPY") ?? [];
+  const spyNow =
+    benchSnaps.get("SPY")?.price ?? spyBars.at(-1)?.close ?? null;
+
+  /** SPY's % return between `sinceTs` and now. */
+  const spyReturnSince = (sinceTs: number): number | null => {
+    const start = getStartPriceForDate(spyBars, sinceTs);
+    if (!start || !spyNow) return null;
+    return (spyNow / start - 1) * 100;
+  };
+
+  /** SPY's path indexed to a portfolio series' starting value, aligned to the
+   *  same timestamps so it overlays cleanly. */
+  const benchmarkOverlay = (
+    series: { time: number; value: number }[],
+  ): { time: number; value: number }[] => {
+    if (series.length < 2 || spyBars.length < 2) return [];
+    const startVal = series[0].value;
+    const spyStart = getStartPriceForDate(spyBars, series[0].time);
+    if (!startVal || !spyStart) return [];
+    // Most recent SPY price for forward-filling the tail (prefer the live
+    // snapshot so the overlay's final point matches the alpha badge).
+    const latestSpy = spyNow ?? spyBars[spyBars.length - 1].close;
+    return series.map((p) => {
+      // Forward-fill: SPY's close at-or-after p.time, else the most recent
+      // price. The final series point is timestamped "now" and has no daily bar
+      // at/after it — using getStartPriceForDate here would return the EARLIEST
+      // close (its start-oriented fallback), snapping the overlay back to the
+      // start value and faking an S&P "nosedive" at the right edge.
+      const spyAt = spyBars.find((b) => b.time >= p.time)?.close ?? latestSpy;
+      return { time: p.time, value: startVal * (spyAt / spyStart) };
+    });
+  };
 
   const investors: InvestorValue[] = investorsSeed.map((investor) => {
     const investorStartTs = Math.min(
@@ -707,6 +628,17 @@ export async function GET() {
         const change = currentValue - amount;
         const changePercent = (change / amount) * 100;
 
+        // Today's move: current price vs the previous daily close.
+        const prevClose = data.prevClose;
+        const dayChange =
+          prevClose != null && currentPrice != null
+            ? shares * (currentPrice - prevClose)
+            : null;
+        const dayChangePercent =
+          prevClose && currentPrice != null
+            ? ((currentPrice - prevClose) / prevClose) * 100
+            : null;
+
         // Only count the holding from its purchase date onward, then anchor
         // the final point to the live current value.
         const historyValues = data.history
@@ -730,6 +662,8 @@ export async function GET() {
           currentValue,
           change,
           changePercent,
+          dayChange,
+          dayChangePercent,
           dateInvested,
           history: historyValues,
           allocationIndex: allocationIndex ?? idx,
@@ -750,6 +684,16 @@ export async function GET() {
     const change = currentValue - totalInvested;
     const changePercent = totalInvested
       ? (change / totalInvested) * 100
+      : 0;
+
+    // Today's aggregate move across open holdings; % is vs yesterday's close.
+    const dayChange = holdings.reduce(
+      (sum, holding) => sum + (holding.dayChange ?? 0),
+      0,
+    );
+    const prevCloseValue = currentValue - dayChange;
+    const dayChangePercent = prevCloseValue
+      ? (dayChange / prevCloseValue) * 100
       : 0;
 
     // Forward-filled aggregate. At each timestamp we sum every holding's
@@ -784,6 +728,16 @@ export async function GET() {
       return { time, value };
     });
 
+    // Alpha vs SPY since this investor's inception, on the same return basis
+    // the cards show (gain vs original cash contributed).
+    const originalInvested = investor.originalAmountInvested ?? totalInvested;
+    const investorReturnPct = originalInvested
+      ? ((currentValue - originalInvested) / originalInvested) * 100
+      : 0;
+    const spyReturn = spyReturnSince(investorStartTs);
+    const alphaSpy = spyReturn != null ? investorReturnPct - spyReturn : null;
+    const benchmarkHistory = benchmarkOverlay(valueHistory);
+
     return {
       name: investor.name,
       slug: slugify(investor.name),
@@ -794,14 +748,25 @@ export async function GET() {
       currentValue,
       change,
       changePercent,
+      dayChange,
+      dayChangePercent,
+      spyReturn,
+      alphaSpy,
+      benchmarkHistory,
       holdings,
       valueHistory,
     };
   });
 
+  // Group-level benchmark: SPY since the earliest investment + its window
+  // closes (the frontend indexes these to the combined group series).
+  const spyGroupReturn = spyReturnSince(Math.floor(earliestStartMs / 1000));
+  const spyHistory = spyBars.filter((p) => p.time >= from);
+
   return NextResponse.json({
     asOf: Date.now(),
     investors,
     symbols,
+    benchmark: { label: "S&P 500", spyGroupReturn, spyHistory },
   });
 }

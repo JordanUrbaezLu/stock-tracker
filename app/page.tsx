@@ -11,6 +11,7 @@ import { AnimatedNumber } from "./AnimatedNumber";
 import { Carousel } from "./Carousel";
 import { celebrate } from "./confetti";
 import { initials, avatarGradient } from "./avatar";
+import { RichText } from "./RichText";
 
 const MotionLink = motion.create(Link);
 
@@ -57,14 +58,26 @@ type InvestorValue = {
   currentValue: number;
   change: number;
   changePercent: number;
+  dayChange?: number;
+  dayChangePercent?: number;
+  spyReturn?: number | null;
+  alphaSpy?: number | null;
+  benchmarkHistory?: HistoryPoint[];
   holdings: HoldingValue[];
   valueHistory: HistoryPoint[];
+};
+
+type BenchmarkInfo = {
+  label: string;
+  spyGroupReturn: number | null;
+  spyHistory: { time: number; close: number }[];
 };
 
 type PortfolioResponse = {
   asOf: number;
   investors: InvestorValue[];
   symbols: string[];
+  benchmark?: BenchmarkInfo;
 };
 
 function Modal({
@@ -135,6 +148,7 @@ function changeArrow(change: number | null) {
   if (change == null || change === 0) return "•";
   return change > 0 ? "▲" : "▼";
 }
+
 
 function toneClasses(change: number | null) {
   if (change == null || change === 0)
@@ -244,6 +258,20 @@ function combineHistories(investors: InvestorValue[]): HistoryPoint[] {
   });
 }
 
+/** Keep only the last `days` of a (time-sorted) value series. The API now
+ *  returns ~6 months of history (for the investor detail page); the home cards
+ *  use this to show just their last 30 days. */
+function sliceLastDays(
+  points: HistoryPoint[] | undefined,
+  days: number,
+): HistoryPoint[] {
+  if (!points || points.length === 0) return [];
+  const sorted = [...points].sort((a, b) => a.time - b.time);
+  const cutoff = sorted[sorted.length - 1].time - days * 86_400;
+  const windowed = sorted.filter((p) => p.time >= cutoff);
+  return windowed.length > 1 ? windowed : sorted.slice(-2);
+}
+
 /** Medal for the top three places, otherwise the numeric rank. */
 function rankLabel(idx: number): string {
   return ["🥇", "🥈", "🥉"][idx] ?? `${idx + 1}`;
@@ -328,8 +356,11 @@ function InvestorCard({ investor }: { investor: InvestorValue }) {
     : 0;
   const tone = toneClasses(originalGain);
   const mergedHoldings = mergeHoldings(investor.holdings || []);
-  const hasHistory =
-    Array.isArray(investor.valueHistory) && investor.valueHistory.length > 1;
+  // Cards show the last 30 days of the (now 6-month) history. No S&P overlay
+  // here — the dashed benchmark line lives on the investor detail page and the
+  // group overview chart, where the full window makes it a fair comparison.
+  const cardHistory = sliceLastDays(investor.valueHistory, 30);
+  const hasHistory = cardHistory.length > 1;
   const best = topPerformer(mergedHoldings);
 
   // Personalized AI encouragement. Refetched per investor (and on each reload,
@@ -410,25 +441,43 @@ function InvestorCard({ investor }: { investor: InvestorValue }) {
               format={formatCurrency}
               className="mt-3 block text-3xl font-bold tracking-tight text-white sm:text-4xl"
             />
-            <div className="mt-1.5 flex items-center gap-2">
-              <span
-                className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-sm font-semibold ring-1 ${tone.pill}`}
-              >
-                {changeArrow(originalGain)} {formatPercent(gainPct)}
-              </span>
-              <span className={`text-sm font-medium ${tone.text}`}>
-                {originalGain >= 0 ? "+" : "−"}
-                {formatCurrency(Math.abs(originalGain))}
-              </span>
-            </div>
+            <span
+              className={`mt-1.5 inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-sm font-semibold ring-1 ${tone.pill}`}
+            >
+              {changeArrow(originalGain)} {formatPercent(gainPct)}
+            </span>
+            {typeof investor.dayChangePercent === "number" && (
+              <p className="mt-1 text-xs font-medium text-slate-500">
+                Today{" "}
+                <span className={toneClasses(investor.dayChange ?? 0).text}>
+                  {formatPercent(investor.dayChangePercent)} (
+                  {(investor.dayChange ?? 0) >= 0 ? "+" : "−"}
+                  {formatCurrency(Math.abs(investor.dayChange ?? 0))})
+                </span>
+              </p>
+            )}
           </div>
           {hasHistory && (
             <div className="ml-2 min-w-0 flex-1 self-center">
-              <p className="mb-1 text-right text-[9px] font-semibold uppercase tracking-wider text-slate-500">
-                30D trend
-              </p>
+              <div className="mb-1 flex items-center justify-end">
+                <span
+                  className={`inline-flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider ${
+                    originalGain >= 0 ? "text-emerald-300" : "text-rose-300"
+                  }`}
+                >
+                  <span
+                    aria-hidden
+                    className={`inline-block h-0 w-3 border-t-2 ${
+                      originalGain >= 0
+                        ? "border-emerald-400"
+                        : "border-rose-400"
+                    }`}
+                  />
+                  30D trend
+                </span>
+              </div>
               <Sparkline
-                points={investor.valueHistory}
+                points={cardHistory}
                 positive={originalGain >= 0}
                 height={72}
                 strokeWidth={2}
@@ -465,7 +514,7 @@ function InvestorCard({ investor }: { investor: InvestorValue }) {
             </span>
             <p className="text-xs leading-5 text-emerald-100">
               {insight ? (
-                insight
+                <RichText text={insight} />
               ) : (
                 <>
                   <span className="font-semibold">{best!.symbol}</span> leading
@@ -527,7 +576,21 @@ type Board = {
   positive: (i: InvestorValue) => boolean;
 };
 
+function alphaOf(i: InvestorValue): number | null {
+  return i.alphaSpy ?? null;
+}
+
 const LEADERBOARDS: Board[] = [
+  {
+    id: "value",
+    title: "Most Valuable",
+    icon: "💎",
+    bar: "from-cyan-400/30",
+    sort: (a, b) => b.currentValue - a.currentValue,
+    metric: (i) => i.currentValue,
+    value: (i) => formatCurrency(i.currentValue),
+    positive: () => true,
+  },
   {
     id: "returns",
     title: "Top Returns",
@@ -539,14 +602,19 @@ const LEADERBOARDS: Board[] = [
     positive: (i) => returnPct(i) >= 0,
   },
   {
-    id: "value",
-    title: "Most Valuable",
-    icon: "💎",
-    bar: "from-cyan-400/30",
-    sort: (a, b) => b.currentValue - a.currentValue,
-    metric: (i) => i.currentValue,
-    value: (i) => formatCurrency(i.currentValue),
-    positive: () => true,
+    id: "alpha",
+    title: "Alpha League",
+    icon: "⚡",
+    bar: "from-amber-400/30",
+    sort: (a, b) => (alphaOf(b) ?? -Infinity) - (alphaOf(a) ?? -Infinity),
+    metric: (i) => alphaOf(i) ?? 0,
+    value: (i) => {
+      const a = alphaOf(i);
+      return a == null
+        ? "—"
+        : `${a >= 0 ? "+" : "−"}${Math.abs(a).toFixed(1)}% vs S&P`;
+    },
+    positive: (i) => (alphaOf(i) ?? 0) >= 0,
   },
 ];
 
@@ -595,15 +663,23 @@ function LeaderboardSlide({
                 style={{ width: `${barPct}%` }}
               />
               <div className="relative flex items-center justify-between gap-3">
-                <div className="flex min-w-0 items-center gap-2.5">
+                <div className="flex min-w-0 items-center gap-2">
                   <span
-                    className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold ${
+                    className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-xl font-bold ${
                       idx < 3
                         ? "bg-transparent"
                         : "bg-white/5 text-slate-300 ring-1 ring-white/10"
                     }`}
                   >
                     {rankLabel(idx)}
+                  </span>
+                  <span
+                    aria-hidden
+                    className={`grid h-7 w-7 shrink-0 place-items-center rounded-full bg-linear-to-br ${avatarGradient(
+                      inv.name,
+                    )} text-[10px] font-bold text-white shadow-sm shadow-black/30 ring-1 ring-white/20`}
+                  >
+                    {initials(inv.name)}
                   </span>
                   <span className="truncate text-sm font-semibold text-white">
                     {inv.name}
@@ -622,7 +698,7 @@ function LeaderboardSlide({
 }
 
 /** Best-performing individual holdings across everyone (one owner may sweep). */
-function TopStocksSlide({ investors }: { investors: InvestorValue[] }) {
+function TopHoldingsSlide({ investors }: { investors: InvestorValue[] }) {
   const rows = investors
     .flatMap((inv) =>
       mergeHoldings(inv.holdings || [])
@@ -650,7 +726,7 @@ function TopStocksSlide({ investors }: { investors: InvestorValue[] }) {
             🔥
           </span>
           <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
-            Top Stocks
+            Top Holdings
           </p>
         </div>
         <MotionLink
@@ -688,7 +764,7 @@ function TopStocksSlide({ investors }: { investors: InvestorValue[] }) {
               <div className="relative flex items-center justify-between gap-3">
                 <div className="flex min-w-0 items-center gap-2.5">
                   <span
-                    className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-xs font-bold ${
+                    className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-xl font-bold ${
                       idx < 3
                         ? "bg-transparent"
                         : "bg-white/5 text-slate-300 ring-1 ring-white/10"
@@ -708,8 +784,16 @@ function TopStocksSlide({ investors }: { investors: InvestorValue[] }) {
                           <p className="truncate text-sm font-semibold text-white">
                             {row.symbol}
                           </p>
-                          <p className="truncate text-[11px] text-slate-400">
-                            {row.investorName}
+                          <p className="flex items-center gap-1 text-[11px] text-slate-400">
+                            <span
+                              aria-hidden
+                              className={`grid h-4 w-4 shrink-0 place-items-center rounded-full bg-linear-to-br ${avatarGradient(
+                                row.investorName,
+                              )} text-[7px] font-bold text-white ring-1 ring-white/20`}
+                            >
+                              {initials(row.investorName)}
+                            </span>
+                            <span className="truncate">{row.investorName}</span>
                           </p>
                         </div>
                 </div>
@@ -730,6 +814,9 @@ function HeroCarousel({
   groupCurrent,
   groupGain,
   groupGainPct,
+  groupDayChange,
+  groupDayChangePercent,
+  groupBenchmark,
   groupHistory,
   count,
 }: {
@@ -737,12 +824,13 @@ function HeroCarousel({
   groupCurrent: number;
   groupGain: number;
   groupGainPct: number;
+  groupDayChange: number;
+  groupDayChangePercent: number;
+  groupBenchmark: HistoryPoint[];
   groupHistory: HistoryPoint[];
   count: number;
 }) {
   const multi = count > 1;
-  const leader = [...investors].sort((a, b) => returnPct(b) - returnPct(a))[0];
-
   const overview = (
     <div className="flex h-full flex-col">
       <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
@@ -769,33 +857,49 @@ function HeroCarousel({
             {formatCurrency(Math.abs(groupGain))}
           </span>
         </div>
-        {leader && multi && (
-          // Full-width on mobile (drops to its own line, never clips the card
-          // edge); inline + right-aligned from sm up.
-          <div className="w-full min-w-0 sm:ml-auto sm:w-auto">
-            <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-amber-400/25 bg-amber-400/10 px-2 py-1 sm:gap-2 sm:px-2.5">
-              <span className="text-xs" aria-hidden>
-                🥇
-              </span>
-              <span className="max-w-24 truncate text-xs font-semibold text-amber-100 sm:max-w-14 sm:text-sm md:max-w-20">
-                {leader.name}
-              </span>
-              <span className="whitespace-nowrap text-[11px] font-semibold text-amber-200/90 sm:text-xs">
-                {formatPercent(returnPct(leader))}
-              </span>
-            </span>
-          </div>
-        )}
       </div>
+      <p className="mt-1 text-xs font-medium text-slate-500">
+        Today{" "}
+        <span className={toneClasses(groupDayChange).text}>
+          {formatPercent(groupDayChangePercent)} (
+          {groupDayChange >= 0 ? "+" : "−"}
+          {formatCurrency(Math.abs(groupDayChange))})
+        </span>
+      </p>
       {groupHistory.length > 1 && (
         // Cap the graph height on every breakpoint. Without a cap, the filled
         // SVG (height:100% with no taller sibling to bound it) falls back to
         // aspect-ratio sizing and balloons on wide screens — which made the
         // Overview the tallest slide and left the list panels with dead space.
         // Capped, the list slides set the height and the graph stays sane.
-        <div className="relative mt-3 flex max-h-24 min-h-0 flex-1 sm:max-h-32">
+        <div className="relative mt-2.5 flex max-h-28 min-h-0 flex-1 flex-col sm:max-h-36">
+          <div className="mb-1 flex items-center justify-end gap-2">
+            {groupBenchmark.length > 1 && (
+              <span className="inline-flex items-center gap-1 text-[9px] font-medium uppercase tracking-wider text-slate-500">
+                <span
+                  aria-hidden
+                  className="inline-block h-0 w-3 border-t border-dashed border-slate-400/70"
+                />
+                S&amp;P 500
+              </span>
+            )}
+            <span
+              className={`inline-flex items-center gap-1 text-[9px] font-semibold uppercase tracking-wider ${
+                groupGain >= 0 ? "text-emerald-300" : "text-rose-300"
+              }`}
+            >
+              <span
+                aria-hidden
+                className={`inline-block h-0 w-3 border-t-2 ${
+                  groupGain >= 0 ? "border-emerald-400" : "border-rose-400"
+                }`}
+              />
+              30D trend
+            </span>
+          </div>
           <Sparkline
             points={groupHistory}
+            benchmark={groupBenchmark}
             positive={groupGain >= 0}
             strokeWidth={2}
             showAxes
@@ -810,12 +914,12 @@ function HeroCarousel({
   const slides: ReactNode[] = [overview];
   const labels = ["Overview"];
   if (multi) {
+    slides.push(<TopHoldingsSlide investors={investors} />);
+    labels.push("Top Holdings");
     LEADERBOARDS.forEach((board) => {
       slides.push(<LeaderboardSlide board={board} investors={investors} />);
       labels.push(board.title);
     });
-    slides.push(<TopStocksSlide investors={investors} />);
-    labels.push("Top Stocks");
   }
 
   return (
@@ -931,7 +1035,30 @@ export default function Home() {
   );
   const groupGain = groupCurrent - groupOriginal;
   const groupGainPct = groupOriginal ? (groupGain / groupOriginal) * 100 : 0;
-  const groupHistory = combineHistories(investors);
+  const groupDayChange = investors.reduce((s, i) => s + (i.dayChange ?? 0), 0);
+  const groupDayPrevValue = groupCurrent - groupDayChange;
+  const groupDayChangePercent = groupDayPrevValue
+    ? (groupDayChange / groupDayPrevValue) * 100
+    : 0;
+  // Home overview mirrors the cards: a 30-day window of the richer 6-month
+  // history the API returns (the investor detail page shows the full span).
+  const groupHistory = sliceLastDays(combineHistories(investors), 30);
+
+  // S&P 500 overlay for the group chart — the benchmark's path indexed to the
+  // combined portfolio's starting value (a dashed reference line, no badge).
+  const groupBenchmark = (() => {
+    const spy = data?.benchmark?.spyHistory ?? [];
+    if (groupHistory.length < 2 || spy.length < 2) return [];
+    const startVal = groupHistory[0].value;
+    const spyAt = (t: number) =>
+      (spy.find((p) => p.time >= t) ?? spy[spy.length - 1]).close;
+    const spyStart = spyAt(groupHistory[0].time);
+    if (!startVal || !spyStart) return [];
+    return groupHistory.map((g) => ({
+      time: g.time,
+      value: startVal * (spyAt(g.time) / spyStart),
+    }));
+  })();
 
   // One-time celebration when the portfolio first loads in the green.
   useEffect(() => {
@@ -947,7 +1074,7 @@ export default function Home() {
     <div className="app-backdrop min-h-screen overflow-x-clip text-slate-100">
       <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-5 px-4 pb-10 pt-3 sm:px-6 sm:pt-4">
         <header className="glass rounded-2xl px-4 py-3 shadow-xl shadow-black/30 sm:px-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex items-center gap-3">
               <span className="grid h-9 w-9 place-items-center rounded-xl bg-linear-to-br from-cyan-400 via-fuchsia-500 to-indigo-500 text-base">
                 📈
@@ -979,30 +1106,41 @@ export default function Home() {
                 </p>
               </div>
             </div>
-            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
+            <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-200">
               <MotionLink
                 href="/lookup"
-                whileTap={{ scale: 0.94 }}
-                className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-cyan-100"
+                whileTap={{ scale: 0.95 }}
+                whileHover={{ y: -2 }}
+                className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1 pl-1.5 pr-3.5 backdrop-blur transition hover:border-cyan-300/50 hover:text-white hover:shadow-lg hover:shadow-cyan-500/15"
               >
-                <span aria-hidden>🔍</span> Lookup
+                <span className="grid h-6 w-6 place-items-center rounded-full bg-linear-to-br from-cyan-400 to-blue-500 text-[11px] shadow-sm shadow-black/30">
+                  🔍
+                </span>
+                Lookup
               </MotionLink>
               <MotionLink
                 href="/admin"
-                whileTap={{ scale: 0.94 }}
-                className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 transition hover:-translate-y-0.5 hover:border-fuchsia-300/50 hover:text-fuchsia-100"
+                whileTap={{ scale: 0.95 }}
+                whileHover={{ y: -2 }}
+                className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1 pl-1.5 pr-3.5 backdrop-blur transition hover:border-fuchsia-300/50 hover:text-white hover:shadow-lg hover:shadow-fuchsia-500/15"
               >
-                <span aria-hidden>👤</span>
-                {isAdmin ? "Admin panel" : "Admin"}
+                <span className="grid h-6 w-6 place-items-center rounded-full bg-linear-to-br from-fuchsia-400 to-violet-500 text-[11px] shadow-sm shadow-black/30">
+                  {isAdmin ? "🛡️" : "👤"}
+                </span>
+                Admin
               </MotionLink>
               {isAdmin && (
                 <motion.button
                   type="button"
                   onClick={() => setShowAddInvestor(true)}
-                  whileTap={{ scale: 0.94 }}
-                  className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1.5 text-emerald-100 transition hover:-translate-y-0.5 hover:border-emerald-300 hover:text-white"
+                  whileTap={{ scale: 0.95 }}
+                  whileHover={{ y: -2 }}
+                  className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-500/10 py-1 pl-1.5 pr-3.5 text-emerald-100 transition hover:border-emerald-300/60 hover:text-white hover:shadow-lg hover:shadow-emerald-500/15"
                 >
-                  ＋ Investor
+                  <span className="grid h-6 w-6 place-items-center rounded-full bg-linear-to-br from-emerald-400 to-teal-500 text-sm font-bold text-white shadow-sm shadow-black/30">
+                    ＋
+                  </span>
+                  Investor
                 </motion.button>
               )}
             </div>
@@ -1015,6 +1153,9 @@ export default function Home() {
             groupCurrent={groupCurrent}
             groupGain={groupGain}
             groupGainPct={groupGainPct}
+            groupDayChange={groupDayChange}
+            groupDayChangePercent={groupDayChangePercent}
+            groupBenchmark={groupBenchmark}
             groupHistory={groupHistory}
             count={count}
           />

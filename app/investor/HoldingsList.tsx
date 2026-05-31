@@ -61,6 +61,12 @@ function changeArrow(change: number | null) {
   return change > 0 ? "▲" : "▼";
 }
 
+const SORT_LABELS: Record<"return" | "value" | "name", string> = {
+  return: "Return",
+  value: "Value",
+  name: "Name",
+};
+
 export function HoldingsList({
   holdings,
   isAdmin = false,
@@ -68,6 +74,14 @@ export function HoldingsList({
   onDelete,
 }: Props) {
   const [filter, setFilter] = useState("");
+  const [sort, setSort] = useState<"return" | "value" | "name">("return");
+  const [status, setStatus] = useState<"all" | "open" | "sold">("all");
+  const [sortOpen, setSortOpen] = useState(false);
+
+  const valueOf = (h: Holding) =>
+    h.status === "closed"
+      ? (h.proceeds ?? 0)
+      : (h.currentValue ?? h.amountInvested ?? 0);
 
   const maxValue = useMemo(() => {
     return Math.max(
@@ -83,38 +97,102 @@ export function HoldingsList({
 
   const filtered = useMemo(() => {
     const term = filter.trim().toLowerCase();
-    const byText = term
-      ? holdings.filter((h) => {
-          const symbolMatch = h.symbol.toLowerCase().includes(term);
-          const nameMatch = h.name
-            ? h.name.toLowerCase().includes(term)
-            : false;
-          return symbolMatch || nameMatch;
-        })
-      : holdings;
-
-    return [...byText].sort((a, b) => {
-      const aPct = a.changePercent ?? -Infinity;
-      const bPct = b.changePercent ?? -Infinity;
-      return bPct - aPct;
+    const list = holdings.filter((h) => {
+      if (status === "open" && h.status === "closed") return false;
+      if (status === "sold" && h.status !== "closed") return false;
+      if (!term) return true;
+      const nameMatch = h.name ? h.name.toLowerCase().includes(term) : false;
+      return h.symbol.toLowerCase().includes(term) || nameMatch;
     });
-  }, [filter, holdings]);
+
+    return [...list].sort((a, b) => {
+      if (sort === "name") return a.symbol.localeCompare(b.symbol);
+      if (sort === "value") return valueOf(b) - valueOf(a);
+      return (b.changePercent ?? -Infinity) - (a.changePercent ?? -Infinity);
+    });
+  }, [filter, status, sort, holdings]);
 
   return (
     <div className="space-y-4">
-      <div className="relative">
-        <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
-          🔍
-        </span>
-        <input
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter holdings (e.g., AAPL)"
-          className="h-11 w-full rounded-xl border border-white/10 bg-slate-950/50 pl-9 pr-3 text-sm text-slate-100 outline-none transition focus:border-cyan-400"
-        />
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">
+            🔍
+          </span>
+          <input
+            value={filter}
+            onChange={(e) => setFilter(e.target.value)}
+            placeholder="Filter by name or ticker"
+            className="h-11 w-full rounded-xl border border-white/10 bg-slate-950/50 pl-9 pr-3 text-sm text-slate-100 outline-none transition focus:border-cyan-400/60"
+          />
+        </div>
+        <div className="flex items-center justify-between gap-2 sm:justify-end">
+          {/* Status filter */}
+          <div className="flex rounded-full border border-white/10 bg-white/5 p-0.5 text-xs">
+            {(["all", "open", "sold"] as const).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setStatus(s)}
+                className={`cursor-pointer rounded-full px-3 py-1 font-medium capitalize transition ${
+                  status === s
+                    ? "bg-cyan-500/20 text-cyan-100"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+          {/* Sort menu */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setSortOpen((o) => !o)}
+              className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-cyan-300/40 hover:text-white"
+            >
+              <span className="text-slate-400">Sort:</span>
+              {SORT_LABELS[sort]}
+              <span aria-hidden className="text-slate-400">
+                ▾
+              </span>
+            </button>
+            {sortOpen && (
+              <>
+                <button
+                  type="button"
+                  aria-hidden
+                  tabIndex={-1}
+                  className="fixed inset-0 z-10 cursor-default"
+                  onClick={() => setSortOpen(false)}
+                />
+                <div className="absolute right-0 z-20 mt-1.5 w-36 overflow-hidden rounded-xl border border-white/10 bg-slate-900/95 p-1 shadow-xl shadow-black/40 backdrop-blur">
+                  {(["return", "value", "name"] as const).map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => {
+                        setSort(s);
+                        setSortOpen(false);
+                      }}
+                      className={`flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-1.5 text-left text-xs transition ${
+                        sort === s
+                          ? "bg-cyan-500/15 text-cyan-100"
+                          : "text-slate-300 hover:bg-white/5 hover:text-white"
+                      }`}
+                    >
+                      {SORT_LABELS[s]}
+                      {sort === s && <span aria-hidden>✓</span>}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {filtered.map((holding, idx) => {
           const invested = holding.amountInvested ?? 0;
           const closed = holding.status === "closed";
@@ -145,14 +223,14 @@ export function HoldingsList({
                 damping: 30,
               }}
               whileHover={{ y: -3 }}
-              className={`group space-y-3 rounded-2xl border p-4 transition ${
+              className={`group flex h-full flex-col gap-3 rounded-2xl border p-4 transition ${
                 closed
                   ? "border-amber-400/15 bg-amber-400/3 hover:border-amber-400/25"
                   : "border-white/8 bg-white/3 hover:border-white/15 hover:bg-white/5"
               }`}
             >
               <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-3">
+                <div className="flex min-w-0 items-center gap-3">
                   <CompanyLogo
                     symbol={holding.symbol}
                     name={holding.name}
@@ -161,13 +239,13 @@ export function HoldingsList({
                     delay={idx * 60}
                     linkToLookup
                   />
-                  <div>
+                  <div className="min-w-0">
                     <div className="flex items-center gap-2">
-                      <p className="text-base font-semibold text-white">
+                      <p className="truncate text-base font-semibold text-white">
                         {holding.symbol}
                       </p>
                       {closed && (
-                        <span className="rounded-full bg-amber-400/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-200 ring-1 ring-amber-300/30">
+                        <span className="shrink-0 rounded-full bg-amber-400/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-200 ring-1 ring-amber-300/30">
                           Sold
                         </span>
                       )}
@@ -176,7 +254,7 @@ export function HoldingsList({
                       {holding.name || "—"}
                     </p>
                     {investedDate && (
-                      <p className="mt-0.5 text-[11px] text-cyan-200/80">
+                      <p className="mt-0.5 truncate text-[11px] text-cyan-200/80">
                         Bought {investedDate}
                         {soldDate && (
                           <span className="text-amber-200/80">
@@ -188,7 +266,7 @@ export function HoldingsList({
                   </div>
                 </div>
                 <span
-                  className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${tonePill(
+                  className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${tonePill(
                     holding.change,
                   )}`}
                 >
@@ -234,32 +312,32 @@ export function HoldingsList({
                 </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 border-t border-white/5 pt-3 text-xs">
-                <div>
+              <div className="mt-auto grid grid-cols-3 gap-2 border-t border-white/5 pt-3 text-xs">
+                <div className="min-w-0">
                   <p className="text-[10px] uppercase tracking-wide text-slate-500">
                     Shares
                   </p>
-                  <p className="text-slate-200">
+                  <p className="truncate text-slate-200">
                     {holding.shares ? holding.shares.toFixed(4) : "—"}
                   </p>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-[10px] uppercase tracking-wide text-slate-500">
                     Gain/Loss
                   </p>
                   <p
-                    className={
+                    className={`truncate ${
                       gain >= 0 ? "text-emerald-300" : "text-rose-300"
-                    }
+                    }`}
                   >
                     {formatCurrency(gain)}
                   </p>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-[10px] uppercase tracking-wide text-slate-500">
                     Price
                   </p>
-                  <p className="text-slate-200">
+                  <p className="truncate text-slate-200">
                     {formatCurrency(holding.currentPrice)}
                   </p>
                 </div>

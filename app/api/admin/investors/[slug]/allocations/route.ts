@@ -5,6 +5,7 @@ import {
   getInvestmentsDoc,
   requireAdmin,
 } from "../../../utils";
+import { alpacaConfigured, fetchAsset } from "@/lib/alpaca";
 
 type Params = { slug: string };
 
@@ -13,19 +14,15 @@ function normalizeNumber(value: unknown): number | null {
   return Number.isFinite(num) ? num : null;
 }
 
+/**
+ * Validate via Alpaca's asset registry (tradable + active) — covers ETFs like
+ * TQQQ/VOO/QQQ that Finnhub's quote endpoint returned c=0 for, which used to
+ * block admins from adding them.
+ */
 async function validateSymbol(symbol: string): Promise<boolean> {
-  const apiKey = process.env.FINNHUB_API_KEY;
-  if (!apiKey) return false;
-  const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}&token=${apiKey}`;
-  try {
-    const res = await fetch(url, { next: { revalidate: 0 } });
-    if (!res.ok) return false;
-    const data = await res.json();
-    // Finnhub returns c=0/t=0 for invalid tickers
-    return typeof data?.c === "number" && data.c > 0;
-  } catch {
-    return false;
-  }
+  if (!alpacaConfigured()) return false;
+  const asset = await fetchAsset(symbol);
+  return Boolean(asset?.tradable);
 }
 
 function findAllocationIndex(
