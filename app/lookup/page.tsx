@@ -33,6 +33,20 @@ type HistoryPoint = { time: number; close: number };
 
 const DAY = 86400;
 
+type SpanKey = "3m" | "6m" | "1y" | "5y";
+const SPANS: {
+  key: SpanKey;
+  short: string;
+  label: string;
+  title: string;
+  days: number;
+}[] = [
+  { key: "3m", short: "3M", label: "3 months", title: "3-month", days: 91 },
+  { key: "6m", short: "6M", label: "6 months", title: "6-month", days: 183 },
+  { key: "1y", short: "1Y", label: "1 year", title: "1-year", days: 365 },
+  { key: "5y", short: "5Y", label: "5 years", title: "5-year", days: 1826 },
+];
+
 function fmtPct(v: number | null | undefined) {
   if (v == null || Number.isNaN(v)) return "—";
   return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
@@ -98,6 +112,8 @@ function LookupContent() {
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [analysisDone, setAnalysisDone] = useState(false);
   const analysisFor = useRef<string | null>(null);
+  // The timespan the reader is analyzing — drives the chart range and the AI read.
+  const [span, setSpan] = useState<SpanKey>("6m");
   // Controls the type-ahead dropdown — only shown while the input is focused.
   const [focused, setFocused] = useState(false);
 
@@ -168,7 +184,6 @@ function LookupContent() {
     overrideSymbol?: string,
   ) => {
     event?.preventDefault();
-    setFocused(false);
     await loadQuote(overrideSymbol ?? ticker, true);
   };
 
@@ -197,28 +212,42 @@ function LookupContent() {
     return () => clearTimeout(handler);
   }, [ticker]);
 
+  const activeSpan = SPANS.find((s) => s.key === span) ?? SPANS[2];
+
   const perf = useMemo(() => {
     if (!history || history.length < 2) return null;
-    const six = sliceDays(history, 183);
-    const closes6 = six.map((p) => p.close);
+    const slice = sliceDays(history, activeSpan.days);
+    const closes = slice.map((p) => p.close);
     return {
-      ret1m: returnOver(history, 30),
-      ret6m: returnOver(history, 183),
-      ret1y: returnOver(history, 365),
-      six,
-      low6m: closes6.length ? Math.min(...closes6) : null,
-      high6m: closes6.length ? Math.max(...closes6) : null,
-      change6m: six.length >= 2 ? six[six.length - 1].close - six[0].close : null,
+      // Returns for every window — drive the selectable timespan tiles.
+      returns: Object.fromEntries(
+        SPANS.map((s) => [s.key, returnOver(history, s.days)]),
+      ) as Record<SpanKey, number | null>,
+      // Always-on cross-timeframe context for the AI (independent of the tiles).
+      context: {
+        ret1m: returnOver(history, 30),
+        ret6m: returnOver(history, 183),
+        ret1y: returnOver(history, 365),
+      },
+      // The selected span's slice + stats — drive the chart and the AI read.
+      slice,
+      spanReturn: returnOver(history, activeSpan.days),
+      low: closes.length ? Math.min(...closes) : null,
+      high: closes.length ? Math.max(...closes) : null,
+      change:
+        slice.length >= 2 ? slice[slice.length - 1].close - slice[0].close : null,
     };
-  }, [history]);
+  }, [history, activeSpan.days]);
 
-  // AI 6-month read — generated lazily, only after the user expands the card
-  // (guarded per-symbol so it fires once). Leaving the card closed skips the
-  // API call entirely.
+  // AI read — generated lazily, only after the user expands the card, and
+  // re-generated when the symbol OR the chosen timespan changes (guarded so it
+  // fires once per symbol+span). Leaving the card closed skips the API call.
   useEffect(() => {
     if (!analysisOpen || !quote || !perf) return;
-    if (analysisFor.current === quote.symbol) return;
-    analysisFor.current = quote.symbol;
+    const sp = SPANS.find((s) => s.key === span) ?? SPANS[2];
+    const fkey = `${quote.symbol}:${span}`;
+    if (analysisFor.current === fkey) return;
+    analysisFor.current = fkey;
     const controller = new AbortController();
     setTake(null);
     setAnalysisDone(false);
@@ -231,11 +260,13 @@ function LookupContent() {
         name: quote.name,
         price: quote.price,
         todayPct: parseFloat(quote.changePercent) || null,
-        ret1m: perf.ret1m,
-        ret6m: perf.ret6m,
-        ret1y: perf.ret1y,
-        low6m: perf.low6m,
-        high6m: perf.high6m,
+        spanLabel: sp.label,
+        spanReturn: perf.spanReturn,
+        spanLow: perf.low,
+        spanHigh: perf.high,
+        ret1m: perf.context.ret1m,
+        ret6m: perf.context.ret6m,
+        ret1y: perf.context.ret1y,
       }),
     })
       .then((r) => (r.ok ? r.json() : null))
@@ -245,7 +276,7 @@ function LookupContent() {
       .catch(() => null)
       .finally(() => setAnalysisDone(true));
     return () => controller.abort();
-  }, [analysisOpen, quote, perf]);
+  }, [analysisOpen, quote, perf, span]);
 
   return (
     <div className="app-backdrop min-h-screen overflow-x-clip text-slate-100">
@@ -309,8 +340,15 @@ function LookupContent() {
               {loading ? "…" : "Look up"}
             </motion.button>
 
-            {/* Type-ahead dropdown — anchored under the input, only while focused. */}
-            {focused && results.length > 0 && (
+            {/* Type-ahead dropdown — shown while the input is focused and the
+                current text isn't the already-loaded symbol. Gating on the
+                loaded symbol (instead of toggling `focused` manually) keeps the
+                dropdown from getting stuck hidden when the input keeps DOM
+                focus after a search. */}
+            {focused &&
+              results.length > 0 &&
+              !loading &&
+              sanitizeSymbol(ticker) !== quote?.symbol && (
               <motion.div
                 initial={{ opacity: 0, y: -6 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -328,7 +366,6 @@ function LookupContent() {
                     onClick={() => {
                       const symbol = sanitizeSymbol(res.symbol);
                       setTicker(symbol);
-                      setFocused(false);
                       void handleSubmit(undefined, symbol);
                     }}
                     className="flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition hover:bg-white/5"
@@ -395,34 +432,41 @@ function LookupContent() {
                 </span>
               </div>
 
-              {/* Performance */}
-              {perf && (
-                <div className="grid grid-cols-3 gap-2.5">
-                  {[
-                    { label: "1 month", v: perf.ret1m, hl: false },
-                    { label: "6 months", v: perf.ret6m, hl: true },
-                    { label: "1 year", v: perf.ret1y, hl: false },
-                  ].map((t) => (
-                    <div
-                      key={t.label}
-                      className={`rounded-2xl border px-3 py-2.5 ${
-                        t.hl
-                          ? "border-cyan-400/25 bg-cyan-500/10"
-                          : "border-white/5 bg-white/3"
-                      }`}
-                    >
-                      <p className="text-[10px] uppercase tracking-wider text-slate-400">
-                        {t.label}
-                      </p>
-                      <p
-                        className={`mt-0.5 text-sm font-semibold ${toneText(t.v)}`}
+              {/* Timespan filter — selects the window for the chart and the AI
+                  read, and doubles as a per-window return tile. */}
+              <div>
+                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                  Timespan
+                </p>
+                <div className="grid grid-cols-4 gap-2">
+                  {SPANS.map((s) => {
+                    const v = perf?.returns[s.key] ?? null;
+                    const active = span === s.key;
+                    return (
+                      <button
+                        key={s.key}
+                        type="button"
+                        onClick={() => setSpan(s.key)}
+                        aria-pressed={active}
+                        className={`cursor-pointer rounded-2xl border px-2 py-2.5 text-left transition ${
+                          active
+                            ? "border-cyan-400/40 bg-cyan-500/10 ring-1 ring-cyan-400/30"
+                            : "border-white/5 bg-white/3 hover:border-white/15 hover:bg-white/5"
+                        }`}
                       >
-                        {fmtPct(t.v)}
-                      </p>
-                    </div>
-                  ))}
+                        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                          {s.short}
+                        </p>
+                        <p
+                          className={`mt-0.5 text-sm font-semibold ${toneText(v)}`}
+                        >
+                          {fmtPct(v)}
+                        </p>
+                      </button>
+                    );
+                  })}
                 </div>
-              )}
+              </div>
 
               {/* AI 6-month analysis — expandable; the AI read is only generated
                   on first expand. Kept above the chart so it's ATF on mobile. */}
@@ -438,11 +482,11 @@ function LookupContent() {
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-xs font-semibold uppercase tracking-wider text-fuchsia-100">
-                      6 month analysis
+                      {activeSpan.title} analysis
                     </span>
                     <span className="block truncate text-[11px] text-slate-400">
                       {analysisOpen
-                        ? "AI read of the last 6 months"
+                        ? `AI read of the ${activeSpan.title} trend`
                         : "Tap to generate an AI read"}
                     </span>
                   </span>
@@ -477,26 +521,39 @@ function LookupContent() {
                         No analysis available right now.
                       </p>
                     ) : (
-                      <p className="animate-pulse text-sm text-slate-400">
-                        Reading the 6-month chart…
-                      </p>
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm font-medium text-fuchsia-200/90">
+                          <span
+                            aria-hidden
+                            className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-fuchsia-300/30 border-t-fuchsia-300"
+                          />
+                          Analyzing the {activeSpan.title} trend…
+                        </div>
+                        <div className="space-y-1.5 pt-0.5">
+                          <div className="skeleton h-3 w-full rounded" />
+                          <div className="skeleton h-3 w-11/12 rounded" />
+                          <div className="skeleton h-3 w-4/5 rounded" />
+                        </div>
+                      </div>
                     )}
                   </div>
                 )}
               </div>
 
-              {/* 6-month trend chart */}
+              {/* Trend chart for the selected timespan */}
               <div className="rounded-2xl border border-white/5 bg-white/2 p-3">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                    6-month trend
+                    {activeSpan.title} trend
                   </p>
                   {perf && (
-                    <p className={`text-xs font-semibold ${toneText(perf.ret6m)}`}>
-                      {fmtPct(perf.ret6m)}
-                      {perf.change6m != null
-                        ? ` (${perf.change6m >= 0 ? "+" : "−"}${fmtMoney(
-                            perf.change6m,
+                    <p
+                      className={`text-xs font-semibold ${toneText(perf.spanReturn)}`}
+                    >
+                      {fmtPct(perf.spanReturn)}
+                      {perf.change != null
+                        ? ` (${perf.change >= 0 ? "+" : "−"}${fmtMoney(
+                            perf.change,
                           )})`
                         : ""}
                     </p>
@@ -507,10 +564,13 @@ function LookupContent() {
                     Loading price history…
                   </p>
                 )}
-                {perf && perf.six.length > 1 && (
+                {perf && perf.slice.length > 1 && (
                   <Sparkline
-                    points={perf.six.map((p) => ({ time: p.time, value: p.close }))}
-                    positive={(perf.ret6m ?? 0) >= 0}
+                    points={perf.slice.map((p) => ({
+                      time: p.time,
+                      value: p.close,
+                    }))}
+                    positive={(perf.spanReturn ?? 0) >= 0}
                     height={170}
                     strokeWidth={2}
                     showAxes

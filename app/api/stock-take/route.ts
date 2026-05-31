@@ -6,21 +6,25 @@ type StockTakeRequest = {
   name?: string | null;
   price?: number;
   todayPct?: number | null;
+  // The timespan the reader chose to analyze (label + that window's stats).
+  spanLabel?: string | null;
+  spanReturn?: number | null;
+  spanLow?: number | null;
+  spanHigh?: number | null;
+  // The standard windows, always sent as cross-timeframe context.
   ret1m?: number | null;
   ret6m?: number | null;
   ret1y?: number | null;
-  low6m?: number | null;
-  high6m?: number | null;
 };
 
 const MODEL = "claude-haiku-4-5";
 
-const SYSTEM_PROMPT = `You are a sharp, candid market analyst inside a stock-lookup tool. Given a stock's recent performance data, write a brief "6-month read".
+const SYSTEM_PROMPT = `You are a sharp, candid market analyst inside a stock-lookup tool. Given a stock's performance data over a reader-chosen timespan, write a brief read FOR THAT TIMESPAN.
 
 Rules:
 - 2–4 sentences. Be specific with the real numbers and the ticker.
 - Use markdown **double-asterisk bold** for the ticker and key numbers. No other markdown.
-- Cover the 6-month trend and momentum, and give a candid characterization of the profile (e.g. strong momentum, steady compounder, choppy/volatile, weak/declining, speculative/leveraged).
+- Center the read on the requested timespan's trend and momentum, and give a candid characterization of the profile (e.g. strong momentum, steady compounder, choppy/volatile, weak/declining, speculative/leveraged). You may reference the other timeframes for context.
 - You MAY give an opinionated read on whether it currently looks strong, mixed, or risky — but do NOT give direct buy/sell/hold instructions or price predictions, and don't tell the reader what to do with their money.`;
 
 // Cache by symbol + a coarse 6-month-return bucket; resets per instance.
@@ -33,17 +37,20 @@ function fmtPct(n: number | null | undefined) {
 }
 
 function buildPrompt(b: StockTakeRequest) {
+  const span = b.spanLabel || "6 months";
   return `Stock: ${b.symbol}${b.name ? ` (${b.name})` : ""}
+Timespan to analyze: ${span}
 - Current price: $${(b.price ?? 0).toFixed(2)}
 - Today: ${fmtPct(b.todayPct)}
-- 1-month return: ${fmtPct(b.ret1m)}
-- 6-month return: ${fmtPct(b.ret6m)}
-- 1-year return: ${fmtPct(b.ret1y)}
-- 6-month range: ${b.low6m != null ? `$${b.low6m.toFixed(2)}` : "n/a"} – ${
-    b.high6m != null ? `$${b.high6m.toFixed(2)}` : "n/a"
+- Return over ${span}: ${fmtPct(b.spanReturn)}
+- ${span} range: ${b.spanLow != null ? `$${b.spanLow.toFixed(2)}` : "n/a"} – ${
+    b.spanHigh != null ? `$${b.spanHigh.toFixed(2)}` : "n/a"
   }
+- For context — 1-month: ${fmtPct(b.ret1m)}, 6-month: ${fmtPct(
+    b.ret6m,
+  )}, 1-year: ${fmtPct(b.ret1y)}
 
-Write the 6-month read.`;
+Write the ${span} read.`;
 }
 
 export async function POST(request: NextRequest) {
@@ -63,12 +70,13 @@ export async function POST(request: NextRequest) {
   if (!apiKey) {
     return NextResponse.json({
       read: null,
-      note: "Add an ANTHROPIC_API_KEY to .env.local to enable the AI 6-month read.",
+      note: "Add an ANTHROPIC_API_KEY to .env.local to enable the AI read.",
     });
   }
 
-  const bucket = body.ret6m == null ? "" : Math.round(body.ret6m / 3) * 3;
-  const key = `${symbol}|${bucket}`;
+  const bucket =
+    body.spanReturn == null ? "" : Math.round(body.spanReturn / 3) * 3;
+  const key = `${symbol}|${body.spanLabel ?? ""}|${bucket}`;
   const hit = cache.get(key);
   if (hit && hit.expires > Date.now()) {
     return NextResponse.json({ read: hit.text, source: "cache" });
