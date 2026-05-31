@@ -23,15 +23,23 @@ export async function GET(request: NextRequest) {
   try {
     const assets = await fetchActiveAssets();
     const q = query.trim().toUpperCase();
+    // Whole-word match inside the name, e.g. "APPLE" in "Apple Hospitality REIT".
+    const qEsc = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const wordRe = new RegExp(`\\b${qEsc}`);
 
-    // Rank: exact symbol > symbol prefix > symbol contains > name contains.
+    // Rank so a company name surfaces its ticker even when the user doesn't know
+    // it: exact ticker > ticker prefix > NAME starts with query (e.g. "target"
+    // -> "Target Corporation" / TGT) > query starts a word in the name >
+    // ticker contains > name contains anywhere.
     const score = (a: { symbol: string; name: string }) => {
       const sym = a.symbol.toUpperCase();
-      const name = a.name.toUpperCase();
+      const name = (a.name || "").toUpperCase();
       if (sym === q) return 0;
       if (sym.startsWith(q)) return 1;
-      if (sym.includes(q)) return 2;
-      if (name.includes(q)) return 3;
+      if (name.startsWith(q)) return 2;
+      if (wordRe.test(name)) return 3;
+      if (sym.includes(q)) return 4;
+      if (name.includes(q)) return 5;
       return 99;
     };
 
@@ -44,7 +52,15 @@ export async function GET(request: NextRequest) {
           !a.symbol.includes("/") &&
           score(a) < 99,
       )
-      .sort((a, b) => score(a) - score(b) || a.symbol.localeCompare(b.symbol))
+      // Within a tier, prefer the canonical match: the shorter company name
+      // (Target Corporation over "…Target Date…" funds), then shorter ticker.
+      .sort(
+        (a, b) =>
+          score(a) - score(b) ||
+          (a.name || "").length - (b.name || "").length ||
+          a.symbol.length - b.symbol.length ||
+          a.symbol.localeCompare(b.symbol),
+      )
       .slice(0, 8)
       .map((a) => ({
         symbol: a.symbol.toUpperCase(),
