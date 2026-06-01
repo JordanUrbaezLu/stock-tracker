@@ -80,6 +80,51 @@ function sliceDays(history: HistoryPoint[], days: number): HistoryPoint[] {
   return sliced.length >= 2 ? sliced : history;
 }
 
+type Prediction = {
+  m1: number;
+  m2: number;
+  m3: number;
+  direction: "up" | "down" | "flat";
+  rationale: string;
+};
+
+/**
+ * Build a forward forecast series from the monthly price targets, sampled at the
+ * SAME cadence as the visible history slice — so the 3-month projection reads
+ * proportionally on the chart (e.g. ~half of a 3-month view, a sliver of a 5-year
+ * view) rather than as a fixed, distorted handful of points.
+ */
+function buildForecast(slice: HistoryPoint[], pred: Prediction): HistoryPoint[] {
+  if (slice.length < 2) return [];
+  const lastTime = slice[slice.length - 1].time;
+  const lastClose = slice[slice.length - 1].close;
+  const spacing = (lastTime - slice[0].time) / (slice.length - 1) || DAY;
+  const end = lastTime + 90 * DAY;
+  const wp = [
+    { t: lastTime, v: lastClose },
+    { t: lastTime + 30 * DAY, v: pred.m1 },
+    { t: lastTime + 60 * DAY, v: pred.m2 },
+    { t: end, v: pred.m3 },
+  ];
+  const interp = (t: number) => {
+    if (t <= wp[0].t) return wp[0].v;
+    for (let i = 1; i < wp.length; i++) {
+      if (t <= wp[i].t) {
+        const a = wp[i - 1];
+        const b = wp[i];
+        return a.v + (b.v - a.v) * ((t - a.t) / (b.t - a.t || 1));
+      }
+    }
+    return wp[wp.length - 1].v;
+  };
+  const pts: HistoryPoint[] = [];
+  for (let t = lastTime + spacing; t < end; t += spacing) {
+    pts.push({ time: Math.round(t), close: interp(t) });
+  }
+  pts.push({ time: end, close: pred.m3 }); // pin the +3mo target exactly
+  return pts;
+}
+
 function sanitizeSymbol(raw: string) {
   return raw
     .trim()
@@ -114,6 +159,9 @@ function LookupContent() {
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [analysisDone, setAnalysisDone] = useState(false);
   const [shown, setShown] = useState(0);
+  // 3-month forward projection — fetched alongside the analysis (once per
+  // symbol) and drawn as a dashed forecast on the trend chart.
+  const [prediction, setPrediction] = useState<Prediction | null>(null);
   const analysisFor = useRef<string | null>(null);
   // The timespan the reader is analyzing — drives the chart range and the AI read.
   const [span, setSpan] = useState<SpanKey>("6m");
@@ -158,6 +206,7 @@ function LookupContent() {
       setTake(null);
       setAnalysisOpen(false);
       setAnalysisDone(false);
+      setPrediction(null);
       analysisFor.current = null;
       try {
         const response = await fetch(`/api/quote?symbol=${symbol}`);
@@ -237,6 +286,14 @@ function LookupContent() {
     };
   }, [history, activeSpan.days]);
 
+  // Dashed 3-month projection, sampled at the visible chart's cadence so it
+  // reads proportionally. Only present once the analysis (and its prediction)
+  // has loaded for this symbol.
+  const forecastSlice = useMemo(
+    () => (prediction && perf ? buildForecast(perf.slice, prediction) : []),
+    [prediction, perf],
+  );
+
   // AI read — generated lazily, only after the user expands the card, and
   // re-generated when the symbol OR the chosen timespan changes (guarded so it
   // fires once per symbol+span). Leaving the card closed skips the API call.
@@ -249,8 +306,35 @@ function LookupContent() {
     const controller = new AbortController();
     setTake(null);
     setAnalysisDone(false);
+    setPrediction(null);
     startSearching(); // looped "analyzing" motif while we wait
     const yearCloses = sliceDays(history, 365).map((p) => p.close);
+    const ret1m = returnOver(history, 30);
+    const ret6m = returnOver(history, 183);
+    const ret1y = returnOver(history, 365);
+    const yearLow = yearCloses.length ? Math.min(...yearCloses) : null;
+    const yearHigh = yearCloses.length ? Math.max(...yearCloses) : null;
+    // 3-month forward projection, drawn dashed on the trend chart.
+    fetch("/api/predict", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      body: JSON.stringify({
+        symbol: quote.symbol,
+        name: quote.name,
+        price: quote.price,
+        ret1m,
+        ret6m,
+        ret1y,
+        yearLow,
+        yearHigh,
+      }),
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { prediction?: Prediction } | null) => {
+        if (j?.prediction) setPrediction(j.prediction);
+      })
+      .catch(() => null);
     fetch("/api/stock-take", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -260,11 +344,11 @@ function LookupContent() {
         name: quote.name,
         price: quote.price,
         todayPct: parseFloat(quote.changePercent) || null,
-        ret1m: returnOver(history, 30),
-        ret6m: returnOver(history, 183),
-        ret1y: returnOver(history, 365),
-        yearLow: yearCloses.length ? Math.min(...yearCloses) : null,
-        yearHigh: yearCloses.length ? Math.max(...yearCloses) : null,
+        ret1m,
+        ret6m,
+        ret1y,
+        yearLow,
+        yearHigh,
       }),
     })
       .then((r) => (r.ok ? r.json() : null))
@@ -508,9 +592,15 @@ function LookupContent() {
                 </div>
               </div>
 
-              {/* AI 6-month analysis — expandable; the AI read is only generated
-                  on first expand. Kept above the chart so it's ATF on mobile. */}
-              <div className="overflow-hidden rounded-2xl border border-fuchsia-400/20 bg-fuchsia-500/8">
+              {/* AI analysis — expandable; the AI read is only generated on first
+                  expand. Kept above the chart so it's ATF on mobile. A NEW badge
+                  on the border nudges first-time users to open it (which also
+                  reveals the 3-month forecast). */}
+              <div className="relative">
+                <span className="absolute -top-2 right-5 z-10 inline-flex items-center rounded-full bg-linear-to-r from-rose-500 to-orange-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white shadow-md shadow-rose-500/40 ring-1 ring-white/20">
+                  New
+                </span>
+                <div className="overflow-hidden rounded-2xl border border-fuchsia-400/20 bg-fuchsia-500/8">
                 <button
                   type="button"
                   onClick={() => {
@@ -582,16 +672,61 @@ function LookupContent() {
                         </div>
                       </div>
                     )}
+                    {prediction && quote && (
+                      <div className="mt-3 rounded-xl border border-violet-400/20 bg-violet-500/8 p-2.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-violet-200">
+                            <span
+                              aria-hidden
+                              className="inline-block h-0 w-3.5 border-t-2 border-dashed border-violet-400"
+                            />
+                            3-Month Forecast
+                          </span>
+                          <span
+                            className={`text-sm font-bold ${toneText(
+                              prediction.m3 - quote.price,
+                            )}`}
+                          >
+                            {fmtMoney(prediction.m3)}{" "}
+                            <span className="text-[11px] font-semibold">
+                              (
+                              {fmtPct(
+                                (prediction.m3 / quote.price - 1) * 100,
+                              )}
+                              )
+                            </span>
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs leading-snug text-slate-300">
+                          {prediction.rationale}
+                        </p>
+                        <p className="mt-1.5 text-[9px] uppercase tracking-wider text-slate-500">
+                          Speculative AI projection · not financial advice
+                        </p>
+                      </div>
+                    )}
                   </div>
                 )}
+                </div>
               </div>
 
               {/* Trend chart for the selected timespan */}
               <div className="rounded-2xl border border-white/5 bg-white/2 p-3">
                 <div className="mb-2 flex items-center justify-between gap-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                    {activeSpan.title} trend
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                      {activeSpan.title} trend
+                    </p>
+                    {forecastSlice.length > 0 && (
+                      <span className="inline-flex items-center gap-1 text-[9px] font-medium uppercase tracking-wider text-violet-300">
+                        <span
+                          aria-hidden
+                          className="inline-block h-0 w-3 border-t-2 border-dashed border-violet-400"
+                        />
+                        3-mo forecast
+                      </span>
+                    )}
+                  </div>
                   {perf && (
                     <p
                       className={`text-xs font-semibold ${toneText(perf.spanReturn)}`}
@@ -613,6 +748,10 @@ function LookupContent() {
                 {perf && perf.slice.length > 1 && (
                   <Sparkline
                     points={perf.slice.map((p) => ({
+                      time: p.time,
+                      value: p.close,
+                    }))}
+                    forecast={forecastSlice.map((p) => ({
                       time: p.time,
                       value: p.close,
                     }))}
