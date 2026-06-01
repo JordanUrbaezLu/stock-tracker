@@ -19,6 +19,7 @@ export type SoundName =
   | "coin" // money / gain accent
   | "error" // failed action
   | "pulse" // whisper tick as the graph pulse sweeps through
+  | "type" // soft key tick as the assistant types its answer
   | "enable" // pleasant chime when sound is switched on
   // Graded gain/loss reactions, scaled by return magnitude (louder = bigger).
   | "gainLow" // 0–50%
@@ -30,6 +31,8 @@ export type SoundName =
 
 export type SoundEngine = {
   play: (name: SoundName) => void;
+  /** Slide "fwip" whose pitch climbs with the slide index (directional feel). */
+  swipe: (index: number) => void;
   /** Start the looped "analyzing" motif (idempotent). */
   startSearching: () => void;
   /** Stop the looped "analyzing" motif. */
@@ -110,6 +113,20 @@ export async function createSoundEngine(): Promise<SoundEngine | null> {
   }).connect(master);
   swipeTone.volume.value = -14;
 
+  // Resonant lowpass + sawtooth for the smooth "shwoop" slide: sweeping the
+  // cutoff over a pitch-gliding saw gives that gliding, friction-y slide feel.
+  const slideFilter = new Tone.Filter({
+    type: "lowpass",
+    frequency: 500,
+    Q: 4,
+  }).connect(master);
+  const slideSynth = new Tone.Synth({
+    oscillator: { type: "sawtooth" },
+    envelope: { attack: 0.035, decay: 0.26, sustain: 0, release: 0.07 },
+    portamento: 0.16,
+  }).connect(slideFilter);
+  slideSynth.volume.value = -16;
+
   // Sawtooth for the error buzz.
   const buzz = new Tone.Synth({
     oscillator: { type: "sawtooth" },
@@ -117,12 +134,22 @@ export async function createSoundEngine(): Promise<SoundEngine | null> {
   }).connect(master);
   buzz.volume.value = -20;
 
-  // Whisper-quiet sine for the graph-pulse tick and the analyzing loop.
+  // Whisper-quiet sine for the graph-pulse tick and the typing tick — these
+  // fire at Tone.now() (monotonic), so they never schedule out of order.
   const soft = new Tone.Synth({
     oscillator: { type: "sine" },
     envelope: { attack: 0.006, decay: 0.12, sustain: 0, release: 0.06 },
   }).connect(master);
   soft.volume.value = -15;
+
+  // The analyzing loop gets its OWN synth: it schedules at future transport
+  // times, which must never share a synth with the now()-based ticks above
+  // (mixing the two produces out-of-order times → Tone throws).
+  const loopSynth = new Tone.Synth({
+    oscillator: { type: "sine" },
+    envelope: { attack: 0.006, decay: 0.12, sustain: 0, release: 0.06 },
+  }).connect(master);
+  loopSynth.volume.value = -15;
 
   // Looped "analyzing" motif (Tone.Loop on the transport).
   let searchLoop: ToneNS.Loop | null = null;
@@ -132,8 +159,17 @@ export async function createSoundEngine(): Promise<SoundEngine | null> {
     if (searchLoop) return;
     searchIdx = 0;
     searchLoop = new Tone.Loop((time) => {
-      soft.triggerAttackRelease(searchSeq[searchIdx % searchSeq.length], 0.09, time, 0.6);
-      searchIdx += 1;
+      try {
+        loopSynth.triggerAttackRelease(
+          searchSeq[searchIdx % searchSeq.length],
+          0.09,
+          time,
+          0.6,
+        );
+        searchIdx += 1;
+      } catch {
+        /* ignore stray scheduling hiccups */
+      }
     }, "8n").start(0);
     Tone.getTransport().start();
   };
@@ -153,6 +189,41 @@ export async function createSoundEngine(): Promise<SoundEngine | null> {
       if (!raw || raw.state === "running") return;
       void raw.resume();
       void Tone.start();
+    } catch {
+      /* ignore */
+    }
+  };
+
+  // The slide "fwip", with a pop note that climbs a pentatonic scale by the
+  // given step — the caller raises the step on consecutive forward swipes and
+  // lowers it on back swipes, so swiping keeps ascending/descending the scale.
+  // The shimmer rides two steps above.
+  const swipeScale = [
+    "C6",
+    "D6",
+    "E6",
+    "G6",
+    "A6",
+    "C7",
+    "D7",
+    "E7",
+    "G7",
+    "A7",
+  ];
+  const fwip = (step: number) => {
+    const t = Tone.now();
+    try {
+      const i = Math.max(0, Math.min(swipeScale.length - 1, Math.round(step)));
+      const pop = swipeScale[i];
+      const shimmer = swipeScale[Math.min(i + 2, swipeScale.length - 1)];
+      swipeFilter.frequency.cancelScheduledValues(t);
+      swipeFilter.frequency.setValueAtTime(2800, t);
+      swipeFilter.frequency.exponentialRampToValueAtTime(640, t + 0.15);
+      noise.triggerAttackRelease(0.13, t);
+      swipeTone.frequency.setValueAtTime(440, t);
+      swipeTone.triggerAttackRelease(560 + i * 60, 0.14, t, 0.45); // glide lifts with index
+      pluck.triggerAttack(pop, t + 0.085);
+      soft.triggerAttackRelease(shimmer, 0.07, t + 0.11, 0.28);
     } catch {
       /* ignore */
     }
@@ -181,13 +252,7 @@ export async function createSoundEngine(): Promise<SoundEngine | null> {
           tone.triggerAttackRelease("C5", 0.09, t + 0.055);
           break;
         case "swipe":
-          swipeFilter.frequency.cancelScheduledValues(t);
-          swipeFilter.frequency.setValueAtTime(1900, t);
-          swipeFilter.frequency.exponentialRampToValueAtTime(620, t + 0.2);
-          noise.triggerAttackRelease(0.18, t);
-          // A soft sine that glides down with it for a smooth, slidey body.
-          swipeTone.frequency.setValueAtTime(660, t);
-          swipeTone.triggerAttackRelease(330, 0.18, t, 0.5);
+          fwip(2); // default mid-scale fwip (callers use swipe(index) for pitch)
           break;
         case "send":
           tone.triggerAttackRelease("E5", 0.07, t);
@@ -213,6 +278,9 @@ export async function createSoundEngine(): Promise<SoundEngine | null> {
         case "pulse":
           soft.triggerAttackRelease("C6", 0.06, t, 0.55);
           break;
+        case "type":
+          soft.triggerAttackRelease("G5", 0.025, t, 0.36);
+          break;
         case "enable":
           // Bright ascending "power on" chime (distinct from success).
           ["C5", "G5", "C6"].forEach((n, i) =>
@@ -222,39 +290,63 @@ export async function createSoundEngine(): Promise<SoundEngine | null> {
 
         // Graded gains — brighter, higher and louder as the return grows.
         case "gainLow":
-          ["C5", "G5"].forEach((n, i) =>
-            poly.triggerAttackRelease(n, 0.22, t + i * 0.08, 0.45),
+          // Energetic full major arpeggio (was the mid tier).
+          ["C5", "E5", "G5", "C6"].forEach((n, i) =>
+            poly.triggerAttackRelease(n, 0.28, t + i * 0.07, 0.85),
           );
+          square.triggerAttackRelease("E6", 0.1, t + 0.28, 0.5);
           break;
         case "gainMid":
-          ["C5", "E5", "G5"].forEach((n, i) =>
-            poly.triggerAttackRelease(n, 0.26, t + i * 0.075, 0.72),
+          // Euphoric rising run topped with bright sparkles (was the high tier).
+          ["C5", "E5", "G5", "C6", "E6", "G6"].forEach((n, i) =>
+            poly.triggerAttackRelease(n, 0.32, t + i * 0.06, 1),
           );
+          square.triggerAttackRelease("C7", 0.18, t + 0.42, 0.6);
+          square.triggerAttackRelease("E6", 0.1, t + 0.06, 0.5);
           break;
-        case "gainHigh":
-          ["C5", "E5", "G5", "C6"].forEach((n, i) =>
-            poly.triggerAttackRelease(n, 0.3, t + i * 0.07, 0.95),
+        case "gainHigh": {
+          // Grand triumphant fanfare — a rising run across octaves, a ringing
+          // high chord at the peak, and climbing sparkles. The biggest winners.
+          ["C5", "E5", "G5", "C6", "E6", "G6", "C7"].forEach((n, i) =>
+            poly.triggerAttackRelease(n, 0.5, t + i * 0.06, 1),
           );
-          // a little coin sparkle on top of a big winner
-          square.triggerAttackRelease("E6", 0.12, t + 0.3, 0.6);
+          ["C6", "E6", "G6"].forEach((n) =>
+            poly.triggerAttackRelease(n, 0.8, t + 0.45, 0.9),
+          );
+          square.triggerAttackRelease("E6", 0.1, t + 0.06, 0.5);
+          square.triggerAttackRelease("C7", 0.16, t + 0.45, 0.55);
+          square.triggerAttackRelease("E7", 0.2, t + 0.55, 0.45);
           break;
+        }
 
         // Graded losses — lower and louder as the drop deepens.
         case "lossLow":
-          ["E4", "C4"].forEach((n, i) =>
-            poly.triggerAttackRelease(n, 0.24, t + i * 0.09, 0.45),
+          // A steeper minor descent with a low buzz under it (was the mid tier).
+          ["E4", "C4", "A3", "F3"].forEach((n, i) =>
+            poly.triggerAttackRelease(n, 0.3, t + i * 0.1, 0.82),
           );
+          buzz.triggerAttackRelease("C3", 0.2, t + 0.3, 0.55);
           break;
         case "lossMid":
-          ["E4", "C4", "A3"].forEach((n, i) =>
-            poly.triggerAttackRelease(n, 0.28, t + i * 0.09, 0.72),
+          // Sad-trombone descent — minor fall + a "womp womp womp wahhh"
+          // sawtooth slide (was the high tier).
+          ["E4", "C4", "A3", "F3"].forEach((n, i) =>
+            poly.triggerAttackRelease(n, 0.45, t + i * 0.13, 0.95),
+          );
+          ["C3", "Bb2", "A2", "F2"].forEach((n, i) =>
+            buzz.triggerAttackRelease(n, i === 3 ? 0.6 : 0.18, t + 0.1 + i * 0.16, 0.85),
           );
           break;
         case "lossHigh":
-          ["E4", "C4", "F3"].forEach((n, i) =>
-            poly.triggerAttackRelease(n, 0.32, t + i * 0.09, 0.9),
+          // Total devastation — a slow, deep collapse with a long sad-trombone
+          // slide that bottoms out on a held low note. The worst losers.
+          ["E4", "C4", "A3", "F3", "D3"].forEach((n, i) =>
+            poly.triggerAttackRelease(n, 0.6, t + i * 0.16, 0.95),
           );
-          buzz.triggerAttackRelease("F2", 0.22, t + 0.18, 0.7);
+          ["C3", "Bb2", "A2", "F2"].forEach((n, i) =>
+            buzz.triggerAttackRelease(n, 0.22, t + 0.12 + i * 0.2, 0.9),
+          );
+          buzz.triggerAttackRelease("D2", 1.1, t + 0.92, 0.9); // deep, long "wahhh"
           break;
       }
     } catch {
@@ -262,5 +354,5 @@ export async function createSoundEngine(): Promise<SoundEngine | null> {
     }
   };
 
-  return { play, startSearching, stopSearching, resume };
+  return { play, swipe: fwip, startSearching, stopSearching, resume };
 }

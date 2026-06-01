@@ -17,9 +17,7 @@ type InsightRequest = {
   holdings?: InsightHolding[];
 };
 
-// Short, upbeat, one-liner — Haiku is the cheapest, fastest tier and these
-// messages are tiny, so cost per call stays low.
-const MODEL = "claude-haiku-4-5";
+const MODEL = "claude-opus-4-8";
 
 // In-memory response cache. Prompt caching can't help here — the shared prefix
 // (system prompt) is far below Haiku's 4096-token minimum — so caching the

@@ -6,26 +6,26 @@ type StockTakeRequest = {
   name?: string | null;
   price?: number;
   todayPct?: number | null;
-  // The timespan the reader chose to analyze (label + that window's stats).
-  spanLabel?: string | null;
-  spanReturn?: number | null;
-  spanLow?: number | null;
-  spanHigh?: number | null;
-  // The standard windows, always sent as cross-timeframe context.
+  // The last year is the primary lens; the shorter windows add context.
   ret1m?: number | null;
   ret6m?: number | null;
   ret1y?: number | null;
+  yearLow?: number | null;
+  yearHigh?: number | null;
 };
 
-const MODEL = "claude-haiku-4-5";
+const MODEL = "claude-opus-4-8";
 
-const SYSTEM_PROMPT = `You are a sharp, candid market analyst inside a stock-lookup tool. Given a stock's performance data over a reader-chosen timespan, write a brief read FOR THAT TIMESPAN.
+const SYSTEM_PROMPT = `You are a sharp, candid market analyst inside a stock-lookup tool. Write ONE compact, up-to-date take on the company — exactly three short sentences, one per point below, in order. No preamble, no filler, no restating the question.
+
+1. Performance — how the stock has done over the LAST YEAR (cite the real 1-year % and the ticker).
+2. Global standing — where the company sits in the world economy right now, given real-world events, trends, and what it actually sells or does (use your own up-to-date knowledge of the company).
+3. Verdict — your overall call: buy, hold, or sell, a rough time horizon, and why, in one clause.
 
 Rules:
-- 2–4 sentences. Be specific with the real numbers and the ticker.
-- Use markdown **double-asterisk bold** for the ticker and key numbers. No other markdown.
-- Center the read on the requested timespan's trend and momentum, and give a candid characterization of the profile (e.g. strong momentum, steady compounder, choppy/volatile, weak/declining, speculative/leveraged). You may reference the other timeframes for context.
-- You MAY give an opinionated read on whether it currently looks strong, mixed, or risky — but do NOT give direct buy/sell/hold instructions or price predictions, and don't tell the reader what to do with their money.`;
+- Keep each sentence tight (~14–22 words); whole thing under ~75 words.
+- Use markdown **double-asterisk bold** for the ticker and key numbers only. No other markdown, no lists, no headings.
+- Be decisive on the verdict — a clear call with a reason, not a hedge.`;
 
 // Cache by symbol + a coarse 6-month-return bucket; resets per instance.
 const CACHE_TTL_MS = 30 * 60 * 1000;
@@ -37,20 +37,16 @@ function fmtPct(n: number | null | undefined) {
 }
 
 function buildPrompt(b: StockTakeRequest) {
-  const span = b.spanLabel || "6 months";
   return `Stock: ${b.symbol}${b.name ? ` (${b.name})` : ""}
-Timespan to analyze: ${span}
 - Current price: $${(b.price ?? 0).toFixed(2)}
 - Today: ${fmtPct(b.todayPct)}
-- Return over ${span}: ${fmtPct(b.spanReturn)}
-- ${span} range: ${b.spanLow != null ? `$${b.spanLow.toFixed(2)}` : "n/a"} – ${
-    b.spanHigh != null ? `$${b.spanHigh.toFixed(2)}` : "n/a"
+- 1-year return: ${fmtPct(b.ret1y)} (primary lens)
+- 1-year range: ${b.yearLow != null ? `$${b.yearLow.toFixed(2)}` : "n/a"} – ${
+    b.yearHigh != null ? `$${b.yearHigh.toFixed(2)}` : "n/a"
   }
-- For context — 1-month: ${fmtPct(b.ret1m)}, 6-month: ${fmtPct(
-    b.ret6m,
-  )}, 1-year: ${fmtPct(b.ret1y)}
+- Context — 1-month: ${fmtPct(b.ret1m)}, 6-month: ${fmtPct(b.ret6m)}
 
-Write the ${span} read.`;
+Write the take.`;
 }
 
 export async function POST(request: NextRequest) {
@@ -74,9 +70,10 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  const bucket =
-    body.spanReturn == null ? "" : Math.round(body.spanReturn / 3) * 3;
-  const key = `${symbol}|${body.spanLabel ?? ""}|${bucket}`;
+  // Cache per symbol, bucketed by a coarse 1-year return so the take refreshes
+  // if the stock moves materially.
+  const bucket = body.ret1y == null ? "" : Math.round(body.ret1y / 5) * 5;
+  const key = `${symbol}|${bucket}`;
   const hit = cache.get(key);
   if (hit && hit.expires > Date.now()) {
     return NextResponse.json({ read: hit.text, source: "cache" });

@@ -24,24 +24,34 @@ type AskRequest = {
   investors?: AskInvestor[];
 };
 
-const MODEL = "claude-haiku-4-5";
+const MODEL = "claude-opus-4-8";
 
-const SYSTEM_PROMPT = `You are a warm, sharp portfolio companion inside a multi-investor stock-tracking app where a small group competes in a friendly portfolio challenge. You are given data for EVERY investor in the group, and you are told which investor is currently asking.
+const SYSTEM_PROMPT = `You are a warm, sharp portfolio companion inside a multi-investor stock-tracking app where a small group competes in a friendly portfolio challenge. You are given data for EVERY investor plus PRE-COMPUTED standings, and you are told which investor is asking.
 
 Rules:
-- Address the asker in the second person ("you", "your") and refer to other investors by name.
-- Answer using only the data provided — including head-to-head comparisons between investors (e.g. "how am I doing vs Brandon?").
-- Be concise (1–4 sentences), friendly, and specific — reference the real tickers, names, and numbers.
+- Use ONLY the data and standings provided. Never invent or estimate numbers, holdings, or positions.
+- The standings are authoritative and already sorted. Each investor occupies EXACTLY ONE position in each ranking — never place the same person in two spots, and never skip or duplicate a rank.
+- "Value" rank = portfolio size; "return" rank = percent gain. They can differ — be clear which one you mean.
+- Address the asker in the second person ("you", "your") and refer to others by name.
+- Be concise (1–4 sentences), friendly, and specific — cite the real tickers, names, and numbers.
 - Use markdown **double-asterisk bold** for names, tickers, and key numbers. No other markdown.
-- NEVER give financial advice: do not tell anyone to buy, sell, hold, or predict prices. If asked, gently decline and pivot to what the data shows.
-- If the data doesn't contain the answer, say so briefly rather than inventing it.`;
+- Don't give financial advice (no buy/sell/hold or price predictions); gently decline and pivot to the data.
+- If the data doesn't answer the question, say so briefly rather than guessing.`;
 
 function fmtPct(n: number | null | undefined) {
   if (n == null || Number.isNaN(n)) return "n/a";
   return `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`;
 }
 
-function investorLine(inv: AskInvestor, isAsker: boolean): string {
+function fmtMoney(n: number | null | undefined) {
+  return `$${Math.round(n ?? 0).toLocaleString("en-US")}`;
+}
+
+function ordinal(i: number) {
+  return ["1st", "2nd", "3rd", "4th", "5th", "6th", "7th", "8th"][i] ?? `${i + 1}th`;
+}
+
+function detailLine(inv: AskInvestor, isAsker: boolean): string {
   const holdings = (inv.holdings ?? [])
     .map(
       (h) =>
@@ -50,8 +60,8 @@ function investorLine(inv: AskInvestor, isAsker: boolean): string {
         )}`,
     )
     .join(", ");
-  return `- ${inv.name}${isAsker ? " (the asker)" : ""}: value $${Math.round(
-    inv.currentValue ?? 0,
+  return `- ${inv.name}${isAsker ? " (the asker)" : ""}: value ${fmtMoney(
+    inv.currentValue,
   )}, total return ${fmtPct(inv.gainPct)}, vs S&P ${fmtPct(
     inv.alphaSpy,
   )}, today ${fmtPct(inv.dayChangePercent)}; holdings: ${holdings || "none"}`;
@@ -59,13 +69,48 @@ function investorLine(inv: AskInvestor, isAsker: boolean): string {
 
 function buildPrompt(body: AskRequest): string {
   const asker = body.askerName ?? "the investor";
-  const lines = (body.investors ?? [])
-    .map((inv) => investorLine(inv, inv.name === asker))
+  const investors = body.investors ?? [];
+
+  // Pre-rank server-side so the model never has to sort (it gets this wrong and
+  // duplicates positions). One entry per investor per ranking.
+  const byValue = [...investors].sort(
+    (a, b) => (b.currentValue ?? 0) - (a.currentValue ?? 0),
+  );
+  const byReturn = [...investors].sort(
+    (a, b) => (b.gainPct ?? -Infinity) - (a.gainPct ?? -Infinity),
+  );
+
+  const valueStandings = byValue
+    .map(
+      (inv, i) =>
+        `${ordinal(i)}: ${inv.name} — ${fmtMoney(inv.currentValue)} (return ${fmtPct(
+          inv.gainPct,
+        )})`,
+    )
     .join("\n");
+  const returnStandings = byReturn
+    .map(
+      (inv, i) =>
+        `${ordinal(i)}: ${inv.name} — ${fmtPct(inv.gainPct)} (value ${fmtMoney(
+          inv.currentValue,
+        )})`,
+    )
+    .join("\n");
+
+  const details = investors
+    .map((inv) => detailLine(inv, inv.name === asker))
+    .join("\n");
+
   return `The investor asking is: ${asker}
 
-All investors in the group:
-${lines}
+STANDINGS BY PORTFOLIO VALUE (highest first — authoritative, one slot each):
+${valueStandings}
+
+STANDINGS BY TOTAL RETURN (best % first — authoritative, one slot each):
+${returnStandings}
+
+PER-INVESTOR DETAIL:
+${details}
 
 Question from ${asker}: ${body.question}`;
 }

@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { FormEvent, useEffect, useState } from "react";
 import { useAdmin } from "../AdminContext";
 import { useSound } from "../SoundContext";
+import { BackButton } from "../BackButton";
 
 export default function AdminPage() {
   const { isAdmin, setIsAdmin, refresh, clearAdmin } = useAdmin();
@@ -43,13 +43,7 @@ export default function AdminPage() {
     <div className="app-backdrop min-h-screen text-slate-100">
       <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-6 px-4 py-12 sm:px-6">
         <div>
-          <Link
-            href="/"
-            onClick={() => play("nav")}
-            className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white"
-          >
-            ← Back
-          </Link>
+          <BackButton className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white" />
         </div>
 
         <div className="glass rounded-3xl p-6 shadow-2xl shadow-black/30 sm:p-8">
@@ -61,7 +55,7 @@ export default function AdminPage() {
               Admin
             </p>
             <h1 className="gradient-text text-3xl font-bold tracking-tight">
-              Admin login
+              Admin Login
             </h1>
             <p className="text-sm text-slate-400">
               Enter the password to locally set your admin key for today.

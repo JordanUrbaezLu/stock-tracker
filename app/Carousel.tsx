@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import { WheelGesturesPlugin } from "embla-carousel-wheel-gestures";
 import { useSound } from "./SoundContext";
@@ -47,7 +47,16 @@ export function Carousel({
   const [selected, setSelected] = useState(0);
   const [canPrev, setCanPrev] = useState(false);
   const [canNext, setCanNext] = useState(false);
-  const { play } = useSound();
+  const { swipe } = useSound();
+  // Pitch follows a consecutive-swipe COMBO, not the slide index. A forward
+  // swipe sits ABOVE center, a back swipe BELOW it, and each additional swipe
+  // in the same direction climbs/descends another scale step. Reversing starts
+  // a fresh run, so alternating right/left gives a distinct high/low (not the
+  // same note), and holding a direction keeps rising/falling.
+  const CENTER = 4;
+  const prevIndexRef = useRef(0);
+  const dirRef = useRef(0);
+  const comboRef = useRef(0);
 
   const sync = useCallback(() => {
     if (!embla) return;
@@ -59,9 +68,21 @@ export function Carousel({
   useEffect(() => {
     if (!embla) return;
     sync(); // initial state only — no sound on mount
+    prevIndexRef.current = embla.selectedScrollSnap();
     const onSelect = () => {
       sync();
-      play("swipe"); // user-driven slide change (drag, wheel, or dot)
+      const cur = embla.selectedScrollSnap();
+      const dir = Math.sign(cur - prevIndexRef.current);
+      prevIndexRef.current = cur;
+      if (dir === 0) return; // no movement → no sound
+      if (dir === dirRef.current) {
+        comboRef.current += 1; // consecutive same-direction → extend the run
+      } else {
+        dirRef.current = dir; // direction changed → fresh run from center
+        comboRef.current = 1;
+      }
+      const step = Math.max(0, Math.min(9, CENTER + dir * comboRef.current));
+      swipe(step);
     };
     embla.on("select", onSelect);
     embla.on("reInit", sync);
@@ -69,7 +90,7 @@ export function Carousel({
       embla.off("select", onSelect);
       embla.off("reInit", sync);
     };
-  }, [embla, sync, play]);
+  }, [embla, sync, swipe]);
 
   const count = slides.length;
   const multi = count > 1;
@@ -79,7 +100,10 @@ export function Carousel({
   return (
     <div className={`relative ${className ?? ""}`}>
       <div className={`overflow-hidden ${viewportClassName}`} ref={emblaRef}>
-        <div className="flex" style={{ touchAction: "pan-y" }}>
+        <div
+          className="flex"
+          style={{ touchAction: "pan-y", willChange: "transform" }}
+        >
           {slides.map((slide, i) => (
             <div
               key={i}

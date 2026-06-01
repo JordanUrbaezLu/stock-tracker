@@ -1,16 +1,21 @@
 "use client";
 
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { HoldingsList } from "../HoldingsList";
 import { PortfolioChat } from "../PortfolioChat";
+import { BackButton } from "../../BackButton";
 import { useAdmin } from "../../AdminContext";
 import { useSound } from "../../SoundContext";
 import { Sparkline } from "../../Sparkline";
 import { initials, avatarGradient } from "../../avatar";
+import {
+  fetchPortfolio,
+  getCachedPortfolio,
+  bustPortfolio,
+} from "../../portfolioCache";
 
 type HistoryPoint = { time: number; value: number };
 
@@ -141,8 +146,10 @@ export default function InvestorDetail() {
   const slug = params.slug?.toString().toLowerCase() ?? "";
   const router = useRouter();
 
-  const [data, setData] = useState<PortfolioResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<PortfolioResponse | null>(() =>
+    getCachedPortfolio<PortfolioResponse>(),
+  );
+  const [loading, setLoading] = useState(() => !getCachedPortfolio());
   const [error, setError] = useState<string | null>(null);
   const { isAdmin } = useAdmin();
   const { play } = useSound();
@@ -162,15 +169,10 @@ export default function InvestorDetail() {
   const [confirmHolding, setConfirmHolding] = useState<HoldingValue | null>(null);
   const [confirmInvestor, setConfirmInvestor] = useState(false);
 
-  const loadPortfolio = useCallback(async () => {
-    setLoading(true);
+  const loadPortfolio = useCallback(async (force = false) => {
     setError(null);
     try {
-      const res = await fetch("/api/portfolio", { cache: "no-store" });
-      const json = (await res.json()) as PortfolioResponse & { error?: string };
-      if (!res.ok) {
-        throw new Error(json?.error || "Could not load portfolio data.");
-      }
+      const json = await fetchPortfolio<PortfolioResponse>(force);
       setData(json);
     } catch (err) {
       const message =
@@ -282,7 +284,7 @@ export default function InvestorDetail() {
       if (!res.ok) {
         throw new Error(json?.error || "Unable to save investment.");
       }
-      await loadPortfolio();
+      await loadPortfolio(true);
       setShowAddModal(false);
       setEditingHolding(null);
       resetForm();
@@ -340,7 +342,7 @@ export default function InvestorDetail() {
         if (!res.ok) {
           throw new Error(json?.error || "Unable to delete investment.");
         }
-        await loadPortfolio();
+        await loadPortfolio(true);
         setConfirmHolding(null);
       } catch (err) {
         const message =
@@ -371,7 +373,7 @@ export default function InvestorDetail() {
         if (!res.ok) {
           throw new Error(json?.error || "Unable to rename investor.");
         }
-        await loadPortfolio();
+        await loadPortfolio(true);
         setShowRename(false);
         setRenameValue("");
         if (json?.slug && json.slug !== investor.slug) {
@@ -407,6 +409,7 @@ export default function InvestorDetail() {
       if (!res.ok) {
         throw new Error(json?.error || "Unable to delete investor.");
       }
+      bustPortfolio(); // investor removed — force Home to refetch fresh data
       router.push("/");
     } catch (err) {
       const message = err instanceof Error ? err.message : "Unable to delete investor.";
@@ -434,13 +437,7 @@ export default function InvestorDetail() {
             className="pointer-events-none absolute -right-24 -top-28 h-64 w-64 rounded-full bg-cyan-500/10 blur-3xl"
           />
           <div className="relative flex items-center justify-between gap-4">
-            <Link
-              href="/"
-              onClick={() => play("nav")}
-              className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white"
-            >
-              ← Back
-            </Link>
+            <BackButton className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white" />
             <div className="flex items-center gap-3 text-xs text-slate-400">
               {isAdmin && (
                 <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 font-semibold uppercase tracking-wide text-emerald-200">
