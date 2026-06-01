@@ -39,23 +39,30 @@ export function PortfolioChat({
     null,
   );
   const threadRef = useRef<HTMLDivElement>(null);
-  const { play } = useSound();
+  const { play, startSearching, stopSearching } = useSound();
 
-  // Reveal the answer a few characters at a time for a live "typing" feel.
+  // Reveal the answer a few characters at a time for a live "typing" feel
+  // (25ms/step), with a soft key tick every ~12 chars.
   useEffect(() => {
     if (!typing) return;
     const full = qa[typing.index]?.a ?? "";
     if (typing.shown >= full.length) return; // fully revealed — stop
     const id = window.setTimeout(() => {
-      setTyping((t) => {
-        if (!t) return t;
-        const len = qa[t.index]?.a.length ?? 0;
-        return { ...t, shown: Math.min(len, t.shown + 3) };
-      });
+      const prev = typing.shown;
+      const next = Math.min(full.length, prev + 3);
+      if (Math.floor(next / 12) !== Math.floor(prev / 12)) play("type");
+      setTyping((t) => (t ? { ...t, shown: next } : t));
       threadRef.current?.scrollTo({ top: 1e9 });
-    }, 16);
+    }, 25);
     return () => window.clearTimeout(id);
-  }, [typing, qa]);
+  }, [typing, qa, play]);
+
+  // Keep the latest message in view: scroll to the bottom whenever a message is
+  // added/updated or the answer types out.
+  useEffect(() => {
+    const el = threadRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [qa, typing]);
 
   const ask = async (raw: string) => {
     const question = raw.trim();
@@ -63,6 +70,7 @@ export function PortfolioChat({
     setQ("");
     setLoading(true);
     play("send");
+    startSearching(); // looped "thinking" sound while the assistant works
     let pendingIndex = 0;
     setQa((prev) => {
       pendingIndex = prev.length;
@@ -98,6 +106,7 @@ export function PortfolioChat({
       });
       const json = (await res.json()) as { answer?: string; error?: string };
       const a = json.answer || json.error || "No answer.";
+      stopSearching(); // stop the thinking loop before the answer types in
       play("receive");
       setQa((prev) =>
         prev.map((item, i) => (i === prev.length - 1 ? { ...item, a } : item)),
@@ -112,6 +121,7 @@ export function PortfolioChat({
         ),
       );
     } finally {
+      stopSearching();
       setLoading(false);
       requestAnimationFrame(() => {
         threadRef.current?.scrollTo({ top: 1e9, behavior: "smooth" });

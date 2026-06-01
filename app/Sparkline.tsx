@@ -70,6 +70,7 @@ export function Sparkline({
   const values = clean.map((p) => p.value);
   const benchValues = benchClean.map((p) => p.value);
   const valuesKey = values.join(",");
+  const benchKey = benchValues.join(",");
 
   useEffect(() => {
     const el = ballRef.current;
@@ -85,8 +86,13 @@ export function Sparkline({
     const n = vals.length;
     if (n < 2) return;
 
-    const mn = Math.min(...vals);
-    const mx = Math.max(...vals);
+    // Scale to the SAME min/max the line uses — across the portfolio AND the
+    // benchmark overlay — so the pulse tracks the green line even when the S&P
+    // overlay extends beyond the portfolio's own range.
+    const benchVals = benchKey ? benchKey.split(",").map(Number) : [];
+    const scaleVals = benchVals.length ? vals.concat(benchVals) : vals;
+    const mn = Math.min(...scaleVals);
+    const mx = Math.max(...scaleVals);
     const rng = mx - mn || 1;
     const usable = height - PAD * 2;
     const duration = 5094; // ~5.1s per pulse (spaced out by +1.5s)
@@ -120,20 +126,41 @@ export function Sparkline({
       easing: "linear",
     });
 
+    // Pause the pulse (and skip its tick) whenever the chart is off-screen —
+    // swiped-away carousel slides and scrolled-off cards then do zero per-frame
+    // work, which keeps sliding/scrolling smooth.
+    let visible = true;
+    const host = el.parentElement ?? el;
+    const io =
+      typeof IntersectionObserver !== "undefined"
+        ? new IntersectionObserver(
+            ([entry]) => {
+              visible = entry.isIntersecting;
+              if (visible) anim.play();
+              else anim.pause();
+            },
+            { threshold: 0 },
+          )
+        : null;
+    io?.observe(host);
+
     // A whisper tick each time the pulse reaches the tip of the line, synced to
     // the sweep so the sound matches the motion. Muted/locked audio is a no-op.
     let tickTimer: number | undefined;
     const startTick = window.setTimeout(() => {
-      play("pulse");
-      tickTimer = window.setInterval(() => play("pulse"), duration);
+      if (visible) play("pulse");
+      tickTimer = window.setInterval(() => {
+        if (visible) play("pulse");
+      }, duration);
     }, sweep * duration);
 
     return () => {
       anim.cancel();
+      io?.disconnect();
       window.clearTimeout(startTick);
       if (tickTimer) window.clearInterval(tickTimer);
     };
-  }, [valuesKey, height, play]);
+  }, [valuesKey, benchKey, height, play]);
 
   if (clean.length < 2) return null;
 

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import {
   FormEvent,
   Suspense,
@@ -16,8 +15,7 @@ import { CompanyLogo } from "../CompanyLogo";
 import { Sparkline } from "../Sparkline";
 import { RichText } from "../RichText";
 import { useSound } from "../SoundContext";
-
-const MotionLink = motion.create(Link);
+import { BackButton } from "../BackButton";
 
 type Quote = {
   symbol: string;
@@ -109,11 +107,13 @@ function LookupContent() {
   const [history, setHistory] = useState<HistoryPoint[] | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [take, setTake] = useState<string | null>(null);
-  // The 6-month analysis is generated lazily — only once the user expands the
-  // card — and re-fetched per symbol. analysisDone marks a finished request so
-  // we can tell "still loading" apart from "finished but empty".
+  // The analysis is generated lazily — only once the user expands the card —
+  // and re-fetched per symbol. analysisDone marks a finished request so we can
+  // tell "still loading" apart from "finished but empty". `shown` drives the
+  // typewriter reveal of the answer.
   const [analysisOpen, setAnalysisOpen] = useState(false);
   const [analysisDone, setAnalysisDone] = useState(false);
+  const [shown, setShown] = useState(0);
   const analysisFor = useRef<string | null>(null);
   // The timespan the reader is analyzing — drives the chart range and the AI read.
   const [span, setSpan] = useState<SpanKey>("6m");
@@ -227,13 +227,7 @@ function LookupContent() {
       returns: Object.fromEntries(
         SPANS.map((s) => [s.key, returnOver(history, s.days)]),
       ) as Record<SpanKey, number | null>,
-      // Always-on cross-timeframe context for the AI (independent of the tiles).
-      context: {
-        ret1m: returnOver(history, 30),
-        ret6m: returnOver(history, 183),
-        ret1y: returnOver(history, 365),
-      },
-      // The selected span's slice + stats — drive the chart and the AI read.
+      // The selected span's slice + stats — drive the chart.
       slice,
       spanReturn: returnOver(history, activeSpan.days),
       low: closes.length ? Math.min(...closes) : null,
@@ -247,15 +241,16 @@ function LookupContent() {
   // re-generated when the symbol OR the chosen timespan changes (guarded so it
   // fires once per symbol+span). Leaving the card closed skips the API call.
   useEffect(() => {
-    if (!analysisOpen || !quote || !perf) return;
-    const sp = SPANS.find((s) => s.key === span) ?? SPANS[2];
-    const fkey = `${quote.symbol}:${span}`;
-    if (analysisFor.current === fkey) return;
-    analysisFor.current = fkey;
+    if (!analysisOpen || !quote || !history || history.length < 2) return;
+    // Keyed to the SYMBOL only — one general take per stock, independent of the
+    // chart's timespan, so flipping 3M/6M/1Y/5Y never refetches.
+    if (analysisFor.current === quote.symbol) return;
+    analysisFor.current = quote.symbol;
     const controller = new AbortController();
     setTake(null);
     setAnalysisDone(false);
     startSearching(); // looped "analyzing" motif while we wait
+    const yearCloses = sliceDays(history, 365).map((p) => p.close);
     fetch("/api/stock-take", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -265,18 +260,19 @@ function LookupContent() {
         name: quote.name,
         price: quote.price,
         todayPct: parseFloat(quote.changePercent) || null,
-        spanLabel: sp.label,
-        spanReturn: perf.spanReturn,
-        spanLow: perf.low,
-        spanHigh: perf.high,
-        ret1m: perf.context.ret1m,
-        ret6m: perf.context.ret6m,
-        ret1y: perf.context.ret1y,
+        ret1m: returnOver(history, 30),
+        ret6m: returnOver(history, 183),
+        ret1y: returnOver(history, 365),
+        yearLow: yearCloses.length ? Math.min(...yearCloses) : null,
+        yearHigh: yearCloses.length ? Math.max(...yearCloses) : null,
       }),
     })
       .then((r) => (r.ok ? r.json() : null))
       .then((j: { read?: string | null; note?: string } | null) => {
-        if (j) setTake(j.read ?? j.note ?? null);
+        if (j) {
+          setTake(j.read ?? j.note ?? null);
+          setShown(0); // begin the typewriter reveal from the start
+        }
       })
       .catch(() => null)
       .finally(() => {
@@ -287,7 +283,19 @@ function LookupContent() {
       controller.abort();
       stopSearching();
     };
-  }, [analysisOpen, quote, perf, span, startSearching, stopSearching]);
+  }, [analysisOpen, quote, history, startSearching, stopSearching]);
+
+  // Typewriter reveal for the analysis (25ms/step), with a soft key tick every
+  // ~12 chars — matches the Portfolio Assistant.
+  useEffect(() => {
+    if (!take || shown >= take.length) return;
+    const id = window.setTimeout(() => {
+      const next = Math.min(take.length, shown + 3);
+      if (Math.floor(next / 12) !== Math.floor(shown / 12)) play("type");
+      setShown(next);
+    }, 25);
+    return () => window.clearTimeout(id);
+  }, [take, shown, play]);
 
   // Payoff tone once a looked-up stock's data lands — a coin for a winner,
   // a soft tap otherwise. Once per symbol (so changing timespans is quiet).
@@ -309,21 +317,14 @@ function LookupContent() {
               </span>
               <div className="min-w-0 leading-tight">
                 <p className="gradient-text truncate text-base font-bold tracking-tight">
-                  Ticker lookup
+                  Ticker Lookup
                 </p>
                 <p className="truncate text-[10px] uppercase tracking-widest text-slate-400 sm:tracking-[0.2em]">
                   Performance &amp; trend
                 </p>
               </div>
             </div>
-            <MotionLink
-              href="/"
-              onClick={() => play("nav")}
-              whileTap={{ scale: 0.95 }}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3.5 py-1.5 text-sm font-semibold text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white sm:px-4"
-            >
-              ← Back
-            </MotionLink>
+            <BackButton />
           </div>
         </header>
 
@@ -524,12 +525,12 @@ function LookupContent() {
                   </span>
                   <span className="min-w-0 flex-1">
                     <span className="block text-xs font-semibold uppercase tracking-wider text-fuchsia-100">
-                      {activeSpan.title} analysis
+                      Ticker Analysis
                     </span>
-                    <span className="block truncate text-[11px] text-slate-400">
+                    <span className="block text-[11px] leading-tight text-slate-400">
                       {analysisOpen
-                        ? `AI read of the ${activeSpan.title} trend`
-                        : "Tap to generate an AI read"}
+                        ? "Performance, market standing & a buy/sell verdict"
+                        : "Tap for an AI take on this ticker"}
                     </span>
                   </span>
                   <span
@@ -556,7 +557,10 @@ function LookupContent() {
                   <div className="px-3 pb-3">
                     {take ? (
                       <p className="text-sm leading-5 text-slate-100">
-                        <RichText text={take} />
+                        <RichText text={take.slice(0, shown)} />
+                        {shown < take.length && (
+                          <span className="ml-0.5 inline-block h-3.5 w-0.5 translate-y-0.5 animate-pulse bg-fuchsia-300/90 align-middle" />
+                        )}
                       </p>
                     ) : analysisDone ? (
                       <p className="text-sm text-slate-400">
@@ -569,7 +573,7 @@ function LookupContent() {
                             aria-hidden
                             className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-fuchsia-300/30 border-t-fuchsia-300"
                           />
-                          Analyzing the {activeSpan.title} trend…
+                          Analyzing {quote.symbol}…
                         </div>
                         <div className="space-y-1.5 pt-0.5">
                           <div className="skeleton h-3 w-full rounded" />

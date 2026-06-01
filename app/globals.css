@@ -317,6 +317,9 @@ button.company-logo {
   opacity: 0;
   pointer-events: none;
   will-change: left, top, opacity;
+  /* Promote to its own compositor layer so the per-frame left/top repaints stay
+     isolated from the surrounding card (smoother during carousel slides). */
+  transform: translateZ(0);
 }
 
 /* Live data heartbeat dot. */

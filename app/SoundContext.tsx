@@ -17,6 +17,8 @@ const STORAGE_KEY = "sound_enabled";
 type SoundContextValue = {
   /** Play a UI sound (no-op when muted or unsupported). */
   play: (name: SoundName) => void;
+  /** Slide sound whose pitch climbs with the slide index. */
+  swipe: (index: number) => void;
   /** Start/stop the looped "analyzing" motif. */
   startSearching: () => void;
   stopSearching: () => void;
@@ -27,6 +29,7 @@ type SoundContextValue = {
 // Safe no-op default so components never crash if used outside the provider.
 const SoundContext = createContext<SoundContextValue>({
   play: () => {},
+  swipe: () => {},
   startSearching: () => {},
   stopSearching: () => {},
   enabled: true,
@@ -109,6 +112,20 @@ export function SoundProvider({ children }: { children: ReactNode }) {
     [ensureEngine],
   );
 
+  const swipe = useCallback(
+    (index: number) => {
+      if (!enabledRef.current) return;
+      const engine = engineRef.current;
+      if (engine) {
+        engine.resume();
+        engine.swipe(index);
+      } else {
+        ensureEngine(); // skip this one sound; it'll be ready next time
+      }
+    },
+    [ensureEngine],
+  );
+
   const startSearching = useCallback(() => {
     if (!enabledRef.current) return;
     searchingRef.current = true;
@@ -141,8 +158,8 @@ export function SoundProvider({ children }: { children: ReactNode }) {
   }, [play]);
 
   const value = useMemo(
-    () => ({ play, startSearching, stopSearching, enabled, toggle }),
-    [play, startSearching, stopSearching, enabled, toggle],
+    () => ({ play, swipe, startSearching, stopSearching, enabled, toggle }),
+    [play, swipe, startSearching, stopSearching, enabled, toggle],
   );
 
   return (

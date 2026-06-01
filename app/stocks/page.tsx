@@ -5,6 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "motion/react";
 import { CompanyLogo } from "../CompanyLogo";
 import { useSound } from "../SoundContext";
+import { BackButton } from "../BackButton";
+import { fetchPortfolio, getCachedPortfolio } from "../portfolioCache";
 
 const MotionLink = motion.create(Link);
 
@@ -103,21 +105,20 @@ function mergeHoldings(holdings: HoldingValue[]): HoldingValue[] {
 }
 
 export default function StocksPage() {
-  const [data, setData] = useState<PortfolioResponse | null>(null);
+  const [data, setData] = useState<PortfolioResponse | null>(() =>
+    getCachedPortfolio<PortfolioResponse>(),
+  );
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !getCachedPortfolio());
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [filterSlug, setFilterSlug] = useState<string>("all");
   const [filterOpen, setFilterOpen] = useState(false);
   const { play } = useSound();
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  const load = useCallback(async (force = false) => {
     setError(null);
     try {
-      const res = await fetch("/api/portfolio", { cache: "no-store" });
-      const json = (await res.json()) as PortfolioResponse & { error?: string };
-      if (!res.ok) throw new Error(json?.error || "Could not load stocks.");
+      const json = await fetchPortfolio<PortfolioResponse>(force);
       setData(json);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong.");
@@ -202,14 +203,7 @@ export default function StocksPage() {
                 </p>
               </div>
             </div>
-            <MotionLink
-              href="/"
-              onClick={() => play("nav")}
-              whileTap={{ scale: 0.94 }}
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3.5 py-1.5 text-sm font-semibold text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white sm:px-4"
-            >
-              ← Back
-            </MotionLink>
+            <BackButton />
           </div>
         </header>
 
@@ -229,7 +223,10 @@ export default function StocksPage() {
             <p className="mt-1 text-sm text-rose-200/80">{error}</p>
             <button
               type="button"
-              onClick={() => load()}
+              onClick={() => {
+                setLoading(true);
+                load(true);
+              }}
               className="mt-4 cursor-pointer rounded-full border border-rose-300/40 px-4 py-1.5 text-sm font-semibold text-rose-100 transition hover:bg-rose-500/20"
             >
               Try again

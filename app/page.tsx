@@ -14,6 +14,7 @@ import { Carousel } from "./Carousel";
 import { celebrate } from "./confetti";
 import { initials, avatarGradient } from "./avatar";
 import { RichText } from "./RichText";
+import { fetchPortfolio, getCachedPortfolio } from "./portfolioCache";
 
 const MotionLink = motion.create(Link);
 
@@ -963,9 +964,13 @@ function CardSkeleton() {
 }
 
 export default function Home() {
-  const [data, setData] = useState<PortfolioResponse | null>(null);
+  // Seed from the session cache so navigating back to Home is instant (no
+  // skeleton flash); a full refresh starts with an empty cache → live fetch.
+  const [data, setData] = useState<PortfolioResponse | null>(() =>
+    getCachedPortfolio<PortfolioResponse>(),
+  );
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !getCachedPortfolio());
   const { isAdmin } = useAdmin();
   const { play } = useSound();
   const [showAddInvestor, setShowAddInvestor] = useState(false);
@@ -974,19 +979,10 @@ export default function Home() {
   const [createError, setCreateError] = useState<string | null>(null);
   const celebrated = useRef(false);
 
-  const loadPortfolios = useCallback(async () => {
-    setLoading(true);
+  const loadPortfolios = useCallback(async (force = false) => {
     setError(null);
     try {
-      const res = await fetch("/api/portfolio", { cache: "no-store" });
-      const json = (await res.json()) as PortfolioResponse & {
-        error?: string;
-      };
-
-      if (!res.ok) {
-        throw new Error(json?.error || "Could not load portfolios.");
-      }
-
+      const json = await fetchPortfolio<PortfolioResponse>(force);
       setData(json);
     } catch (err) {
       const message =
@@ -1024,7 +1020,7 @@ export default function Home() {
       setShowAddInvestor(false);
       setNewInvestorName("");
       play("success");
-      await loadPortfolios();
+      await loadPortfolios(true);
     } catch (err) {
       const message =
         err instanceof Error ? err.message : "Unable to create investor.";
