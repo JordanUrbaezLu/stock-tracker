@@ -236,9 +236,9 @@ function returnPct(inv: InvestorValue) {
  * that exact instant — otherwise a timestamp unique to one investor sums to
  * just their value and the group line shows a fake dip.
  */
-function combineHistories(investors: InvestorValue[]): HistoryPoint[] {
-  const series = investors
-    .map((inv) => [...(inv.valueHistory ?? [])].sort((a, b) => a.time - b.time))
+function combineSeries(seriesList: HistoryPoint[][]): HistoryPoint[] {
+  const series = seriesList
+    .map((s) => [...s].sort((a, b) => a.time - b.time))
     .filter((points) => points.length > 0);
   const allTimes = Array.from(
     new Set(series.flatMap((points) => points.map((p) => p.time))),
@@ -259,6 +259,10 @@ function combineHistories(investors: InvestorValue[]): HistoryPoint[] {
     }
     return { time, value };
   });
+}
+
+function combineHistories(investors: InvestorValue[]): HistoryPoint[] {
+  return combineSeries(investors.map((inv) => inv.valueHistory ?? []));
 }
 
 /** Keep only the last `days` of a (time-sorted) value series. The API now
@@ -360,6 +364,13 @@ function InvestorCard({ investor }: { investor: InvestorValue }) {
     : 0;
   const tone = toneClasses(originalGain);
   const mergedHoldings = mergeHoldings(investor.holdings || []);
+  // Card list: best percentage first, with sold positions pushed to the bottom.
+  const sortedHoldings = [...mergedHoldings].sort((a, b) => {
+    const aClosed = a.status === "closed";
+    const bClosed = b.status === "closed";
+    if (aClosed !== bClosed) return aClosed ? 1 : -1;
+    return (b.changePercent ?? -Infinity) - (a.changePercent ?? -Infinity);
+  });
   // Cards show the last 30 days of the (now 6-month) history. No S&P overlay
   // here — the dashed benchmark line lives on the investor detail page and the
   // group overview chart, where the full window makes it a fair comparison.
@@ -538,25 +549,22 @@ function InvestorCard({ investor }: { investor: InvestorValue }) {
             <span>Holdings</span>
             <span>{mergedHoldings.length}</span>
           </div>
-          <div className="space-y-2">
-            {mergedHoldings.length === 0 && (
-              <div className="rounded-2xl border border-dashed border-white/10 bg-white/2 px-3 py-5 text-center text-xs text-slate-400">
-                No investments yet. Tap to add the first one.
-              </div>
-            )}
-            {mergedHoldings.slice(0, 4).map((holding, idx) => (
-              <HoldingRow
-                key={`${holding.symbol}-${idx}`}
-                holding={holding}
-                index={idx}
-              />
-            ))}
-            {mergedHoldings.length > 4 && (
-              <p className="pt-1 text-center text-[11px] text-slate-500">
-                +{mergedHoldings.length - 4} more · tap to view all
-              </p>
-            )}
-          </div>
+          {mergedHoldings.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-white/10 bg-white/2 px-3 py-5 text-center text-xs text-slate-400">
+              No investments yet. Tap to add the first one.
+            </div>
+          ) : (
+            // Capped to ~3 rows; scroll within the card for the rest.
+            <div className="max-h-42 space-y-2 overflow-y-auto pr-1">
+              {sortedHoldings.map((holding, idx) => (
+                <HoldingRow
+                  key={`${holding.symbol}-${idx}`}
+                  holding={holding}
+                  index={idx}
+                />
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="relative mt-auto flex items-center justify-between border-t border-white/5 pt-3 text-[11px] text-slate-500">
@@ -575,6 +583,8 @@ type Board = {
   title: string;
   icon: string;
   bar: string;
+  /** Mini disclaimer clarifying the metric's timeframe. */
+  note: string;
   sort: (a: InvestorValue, b: InvestorValue) => number;
   metric: (i: InvestorValue) => number;
   value: (i: InvestorValue) => string;
@@ -591,6 +601,7 @@ const LEADERBOARDS: Board[] = [
     title: "Most Valuable",
     icon: "💎",
     bar: "from-cyan-400/30",
+    note: "Live portfolio value",
     sort: (a, b) => b.currentValue - a.currentValue,
     metric: (i) => i.currentValue,
     value: (i) => formatCurrency(i.currentValue),
@@ -601,6 +612,7 @@ const LEADERBOARDS: Board[] = [
     title: "Top Returns",
     icon: "🚀",
     bar: "from-emerald-400/30",
+    note: "Total return · since inception",
     sort: (a, b) => returnPct(b) - returnPct(a),
     metric: returnPct,
     value: (i) => formatPercent(returnPct(i)),
@@ -611,6 +623,7 @@ const LEADERBOARDS: Board[] = [
     title: "Alpha League",
     icon: "⚡",
     bar: "from-amber-400/30",
+    note: "Return vs S&P 500 · since inception",
     sort: (a, b) => (alphaOf(b) ?? -Infinity) - (alphaOf(a) ?? -Infinity),
     metric: (i) => alphaOf(i) ?? 0,
     value: (i) => {
@@ -639,15 +652,18 @@ function LeaderboardSlide({
 
   return (
     <div className="relative">
-      <div className="flex items-center gap-2">
+      {/* Title + inline mini disclaimer so the ranking's timeframe isn't misread. */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
         <span className="text-lg" aria-hidden>
           {board.icon}
         </span>
         <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
           {board.title}
         </p>
+        <span className="text-[10px] text-slate-500">{board.note}</span>
       </div>
-      <div className="mt-2.5 space-y-1">
+      {/* Top 3 fit with the 4th peeking; scroll within the slide for the rest. */}
+      <div className="mt-2.5 max-h-40 space-y-1 overflow-y-auto pr-1">
         {ranked.map((inv, idx) => {
           const barPct = Math.max(
             4,
@@ -997,6 +1013,25 @@ export default function Home() {
     loadPortfolios().catch(() => null);
   }, [loadPortfolios]);
 
+  // Warm the browser cache with every holding's logo as soon as the data lands,
+  // so cards/carousel/detail pages render logos instantly instead of fetching
+  // them one-by-one as you cycle through. crossOrigin is matched to <CompanyLogo>
+  // so FMP's CORS responses are reused rather than re-fetched.
+  useEffect(() => {
+    if (typeof window === "undefined" || !data?.investors) return;
+    const urls = new Set<string>();
+    for (const inv of data.investors) {
+      for (const h of inv.holdings ?? []) {
+        if (h.logo) urls.add(h.logo);
+      }
+    }
+    urls.forEach((u) => {
+      const img = new window.Image();
+      if (u.includes("financialmodelingprep.com")) img.crossOrigin = "anonymous";
+      img.src = u;
+    });
+  }, [data]);
+
   const handleCreateInvestor = useCallback(async () => {
     if (!isAdmin) {
       setCreateError("Admin access required.");
@@ -1052,21 +1087,14 @@ export default function Home() {
   // history the API returns (the investor detail page shows the full span).
   const groupHistory = sliceLastDays(combineHistories(investors), 30);
 
-  // S&P 500 overlay for the group chart — the benchmark's path indexed to the
-  // combined portfolio's starting value (a dashed reference line, no badge).
-  const groupBenchmark = (() => {
-    const spy = data?.benchmark?.spyHistory ?? [];
-    if (groupHistory.length < 2 || spy.length < 2) return [];
-    const startVal = groupHistory[0].value;
-    const spyAt = (t: number) =>
-      (spy.find((p) => p.time >= t) ?? spy[spy.length - 1]).close;
-    const spyStart = spyAt(groupHistory[0].time);
-    if (!startVal || !spyStart) return [];
-    return groupHistory.map((g) => ({
-      time: g.time,
-      value: startVal * (spyAt(g.time) / spyStart),
-    }));
-  })();
+  // S&P 500 overlay for the group chart — the SUM of each investor's
+  // capital-flow benchmark. Built this way (rather than scaling raw SPY to the
+  // group's starting value), adding a new investor bumps the S&P line by their
+  // capital too, instead of faking massive group outperformance.
+  const groupBenchmark = sliceLastDays(
+    combineSeries(investors.map((i) => i.benchmarkHistory ?? [])),
+    30,
+  );
 
   // One-time celebration when the portfolio first loads in the green.
   // (Audio only fires if the context is already unlocked — browsers block

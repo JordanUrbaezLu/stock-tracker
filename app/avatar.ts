@@ -23,6 +23,8 @@ const NAME_OVERRIDES: Record<string, string> = {
   alexa: "from-rose-400 to-pink-500", // pink
   lucas: "from-emerald-400 to-teal-500", // green
   brandon: "from-sky-400 to-blue-500", // blue
+  jordan: "from-red-500 to-rose-600", // red
+  aj: "from-orange-400 to-orange-600", // orange
 };
 
 /** Stable gradient identity for a name, so each investor keeps a consistent

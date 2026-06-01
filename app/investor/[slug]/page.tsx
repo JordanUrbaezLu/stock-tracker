@@ -167,6 +167,12 @@ export default function InvestorDetail() {
     new Date().toISOString().split("T")[0],
   );
   const [confirmHolding, setConfirmHolding] = useState<HoldingValue | null>(null);
+  // Sell flow: which holding is being sold + the proceeds/date inputs.
+  const [sellHolding, setSellHolding] = useState<HoldingValue | null>(null);
+  const [sellAmount, setSellAmount] = useState("");
+  const [sellDate, setSellDate] = useState(
+    new Date().toISOString().split("T")[0],
+  );
   const [confirmInvestor, setConfirmInvestor] = useState(false);
 
   const loadPortfolio = useCallback(async (force = false) => {
@@ -353,6 +359,110 @@ export default function InvestorDetail() {
       }
     },
     [investor, loadPortfolio, isAdmin],
+  );
+
+  const handleSell = useCallback(
+    (holding: HoldingValue) => {
+      if (!isAdmin) {
+        setInvestorError("Admin access required.");
+        return;
+      }
+      play("open");
+      // Default the proceeds to the holding's current value (sell at today's
+      // price) and the date to today — both editable.
+      const current = holding.currentValue ?? holding.amountInvested ?? 0;
+      setSellAmount(current > 0 ? current.toFixed(2) : "");
+      setSellDate(new Date().toISOString().split("T")[0]);
+      setInvestorError(null);
+      setSellHolding(holding);
+    },
+    [isAdmin, play],
+  );
+
+  const performSell = useCallback(async () => {
+    if (!investor || !isAdmin || !sellHolding) {
+      setInvestorError("Admin access required.");
+      return;
+    }
+    const amount = Number(sellAmount);
+    if (!Number.isFinite(amount) || amount < 0) {
+      setInvestorError("Enter a valid sale amount.");
+      return;
+    }
+    if (!sellDate) {
+      setInvestorError("Pick a sale date.");
+      return;
+    }
+    setSaving(true);
+    setInvestorError(null);
+    try {
+      const res = await fetch(
+        `/api/admin/investors/${investor.slug}/allocations`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: sellHolding.id,
+            allocationIndex: sellHolding.allocationIndex,
+            soldAmount: amount,
+            soldDate: new Date(sellDate).toISOString(),
+          }),
+        },
+      );
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(json?.error || "Unable to sell holding.");
+      }
+      play("success");
+      await loadPortfolio(true);
+      setSellHolding(null);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Unable to sell holding.";
+      setInvestorError(message);
+      play("error");
+    } finally {
+      setSaving(false);
+    }
+  }, [investor, isAdmin, sellHolding, sellAmount, sellDate, loadPortfolio, play]);
+
+  const handleReopen = useCallback(
+    async (holding: HoldingValue) => {
+      if (!investor || !isAdmin) {
+        setInvestorError("Admin access required.");
+        return;
+      }
+      setSaving(true);
+      setInvestorError(null);
+      try {
+        const res = await fetch(
+          `/api/admin/investors/${investor.slug}/allocations`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              id: holding.id,
+              allocationIndex: holding.allocationIndex,
+              clearSold: true,
+            }),
+          },
+        );
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(json?.error || "Unable to reopen holding.");
+        }
+        play("toggle");
+        await loadPortfolio(true);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Unable to reopen holding.";
+        setInvestorError(message);
+        play("error");
+      } finally {
+        setSaving(false);
+      }
+    },
+    [investor, isAdmin, loadPortfolio, play],
   );
 
   const handleRename = useCallback(
@@ -669,6 +779,8 @@ export default function InvestorDetail() {
                 isAdmin={isAdmin}
                 onEdit={(holding) => openEditModal(holding)}
                 onDelete={(holding) => handleDeleteHolding(holding)}
+                onSell={(holding) => handleSell(holding)}
+                onReopen={(holding) => handleReopen(holding)}
               />
             </div>
           </section>
@@ -852,6 +964,90 @@ export default function InvestorDetail() {
               className="cursor-pointer rounded-lg bg-rose-500 px-4 py-2 text-sm font-semibold text-rose-50 transition hover:bg-rose-400 disabled:cursor-not-allowed disabled:bg-rose-700/60"
             >
               {saving ? "Deleting..." : "Delete"}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={!!sellHolding}
+        title={`Sell ${sellHolding?.symbol ?? ""}`}
+        onClose={() => {
+          if (saving) return;
+          setSellHolding(null);
+        }}
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-slate-300">
+            Close out{" "}
+            <span className="font-semibold text-white">
+              {sellHolding?.symbol}
+            </span>{" "}
+            and lock in the proceeds. It moves to your sold holdings.
+          </p>
+          <label className="block text-sm text-slate-200">
+            Sold for ($)
+            <input
+              value={sellAmount}
+              onChange={(e) => setSellAmount(e.target.value)}
+              type="number"
+              min="0"
+              step="0.01"
+              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-slate-100 outline-none transition focus:border-amber-400"
+              placeholder="0.00"
+              disabled={saving}
+            />
+          </label>
+          <label className="block text-sm text-slate-200">
+            Sale date
+            <input
+              value={sellDate}
+              onChange={(e) => setSellDate(e.target.value)}
+              type="date"
+              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-slate-100 outline-none transition focus:border-amber-400"
+              disabled={saving}
+            />
+          </label>
+          {sellHolding && sellAmount.trim() !== "" && !Number.isNaN(Number(sellAmount)) && (
+            <p className="text-xs text-slate-400">
+              Cost basis {formatCurrency(sellHolding.amountInvested)} → realized{" "}
+              <span
+                className={badgeColor(
+                  Number(sellAmount) - (sellHolding.amountInvested ?? 0),
+                )}
+              >
+                {Number(sellAmount) - (sellHolding.amountInvested ?? 0) >= 0
+                  ? "+"
+                  : "−"}
+                {formatCurrency(
+                  Math.abs(Number(sellAmount) - (sellHolding.amountInvested ?? 0)),
+                )}
+              </span>
+            </p>
+          )}
+          {investorError && (
+            <p className="text-sm text-rose-300" role="alert">
+              {investorError}
+            </p>
+          )}
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (saving) return;
+                setSellHolding(null);
+              }}
+              className="cursor-pointer rounded-lg px-4 py-2 text-sm text-slate-300 transition hover:bg-slate-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => performSell()}
+              disabled={saving}
+              className="cursor-pointer rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-amber-950 transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-amber-700/60"
+            >
+              {saving ? "Selling..." : "Confirm sale"}
             </button>
           </div>
         </div>

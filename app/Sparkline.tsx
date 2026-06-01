@@ -283,9 +283,13 @@ export function Sparkline({
     (clean[clean.length - 1].time - clean[0].time) / 86_400 || 0;
 
   return (
-    // With `fill`, stretch to the parent's height: the chart row grows and the
-    // SVG (height 100%) follows, while the date axis stays pinned to the bottom.
-    <div className={`${fill ? "flex h-full flex-col " : ""}${className ?? ""}`}>
+    // With `fill`, grow to fill the remaining space in a flex-col parent (so a
+    // sibling legend doesn't squeeze the date axis out of a height-capped card):
+    // the chart row grows, the SVG (height 100%) follows, and the date axis
+    // stays pinned to the bottom.
+    <div
+      className={`${fill ? "flex min-h-0 flex-1 flex-col " : ""}${className ?? ""}`}
+    >
       <div className={fill ? "flex min-h-0 flex-1" : "flex"}>
         {/* Y axis: amount range */}
         <div

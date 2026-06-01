@@ -22,6 +22,11 @@ export type DbAllocation = {
   shares?: number;
   dateInvested?: string | Date;
   id?: string;
+  // Set when a position is sold (closed). Flat form matches the portfolio
+  // route's normalizeSold reader.
+  soldAmount?: number;
+  soldDate?: string | Date;
+  soldShares?: number;
 };
 
 export type DbInvestor = {

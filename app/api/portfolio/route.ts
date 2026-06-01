@@ -244,6 +244,41 @@ function slugify(name: string) {
   return name.trim().toLowerCase().replace(/\s+/g, "-");
 }
 
+/**
+ * Sum a set of time series into one, forward-filled: at each timestamp add each
+ * series' last-known value while it's active (skipped before its first point /
+ * after its last). Used for both the portfolio value line and the capital-flow
+ * benchmark so they stay perfectly aligned.
+ */
+function combineSeries(
+  seriesList: { time: number; value: number }[][],
+): { time: number; value: number }[] {
+  const series = seriesList
+    .map((s) => [...s].sort((a, b) => a.time - b.time))
+    .filter((points) => points.length > 0);
+  const allTimes = Array.from(
+    new Set(series.flatMap((points) => points.map((p) => p.time))),
+  ).sort((a, b) => a - b);
+
+  return allTimes.map((time) => {
+    let value = 0;
+    for (const points of series) {
+      if (time < points[0].time || time > points[points.length - 1].time) {
+        continue;
+      }
+      let lastValue = 0;
+      for (let i = points.length - 1; i >= 0; i--) {
+        if (points[i].time <= time) {
+          lastValue = points[i].value;
+          break;
+        }
+      }
+      value += lastValue;
+    }
+    return { time, value };
+  });
+}
+
 export async function GET() {
   if (!alpacaConfigured()) {
     return NextResponse.json(
@@ -447,35 +482,18 @@ export async function GET() {
   const spyBars = benchBars.get("SPY") ?? [];
   const spyNow =
     benchSnaps.get("SPY")?.price ?? spyBars.at(-1)?.close ?? null;
+  // SPY price at-or-after a timestamp, forward-filled to the latest/live price
+  // for "today" points (the current day has no daily bar yet). Used to grow
+  // each holding's cost basis by SPY from its own purchase date.
+  const latestSpy = spyNow ?? spyBars.at(-1)?.close ?? null;
+  const spyClose = (t: number): number | null =>
+    spyBars.find((b) => b.time >= t)?.close ?? latestSpy;
 
   /** SPY's % return between `sinceTs` and now. */
   const spyReturnSince = (sinceTs: number): number | null => {
     const start = getStartPriceForDate(spyBars, sinceTs);
     if (!start || !spyNow) return null;
     return (spyNow / start - 1) * 100;
-  };
-
-  /** SPY's path indexed to a portfolio series' starting value, aligned to the
-   *  same timestamps so it overlays cleanly. */
-  const benchmarkOverlay = (
-    series: { time: number; value: number }[],
-  ): { time: number; value: number }[] => {
-    if (series.length < 2 || spyBars.length < 2) return [];
-    const startVal = series[0].value;
-    const spyStart = getStartPriceForDate(spyBars, series[0].time);
-    if (!startVal || !spyStart) return [];
-    // Most recent SPY price for forward-filling the tail (prefer the live
-    // snapshot so the overlay's final point matches the alpha badge).
-    const latestSpy = spyNow ?? spyBars[spyBars.length - 1].close;
-    return series.map((p) => {
-      // Forward-fill: SPY's close at-or-after p.time, else the most recent
-      // price. The final series point is timestamped "now" and has no daily bar
-      // at/after it — using getStartPriceForDate here would return the EARLIEST
-      // close (its start-oriented fallback), snapping the overlay back to the
-      // start value and faking an S&P "nosedive" at the right edge.
-      const spyAt = spyBars.find((b) => b.time >= p.time)?.close ?? latestSpy;
-      return { time: p.time, value: startVal * (spyAt / spyStart) };
-    });
   };
 
   const investors: InvestorValue[] = investorsSeed.map((investor) => {
@@ -676,14 +694,22 @@ export async function GET() {
       (sum, holding) => sum + holding.amountInvested,
       0,
     );
+    const originalInvested = investor.originalAmountInvested ?? totalInvested;
 
-    const currentValue = holdings.reduce(
-      (sum, holding) => sum + (holding.currentValue ?? holding.amountInvested),
+    // Total gain = unrealized gains on open positions + realized gains on closed
+    // positions, each measured from its OWN cost basis. This telescopes correctly
+    // even when a sale's proceeds were reinvested into a new holding, so realized
+    // profit is no longer dropped from the headline gain.
+    const totalGain = holdings.reduce(
+      (sum, holding) => sum + (holding.change ?? 0),
       0,
     );
-    const change = currentValue - totalInvested;
-    const changePercent = totalInvested
-      ? (change / totalInvested) * 100
+    // Current value = original capital + total gain: open market value plus any
+    // realized cash. Equals live market value when sales were fully reinvested.
+    const currentValue = originalInvested + totalGain;
+    const change = totalGain;
+    const changePercent = originalInvested
+      ? (totalGain / originalInvested) * 100
       : 0;
 
     // Today's aggregate move across open holdings; % is vs yesterday's close.
@@ -696,47 +722,57 @@ export async function GET() {
       ? (dayChange / prevCloseValue) * 100
       : 0;
 
-    // Forward-filled aggregate. At each timestamp we sum every holding's
-    // last-known value (0 before it was bought / after it was sold), instead
-    // of only the holdings that happen to have a point at that exact instant.
-    // Without this, an off-grid point — e.g. a sale recorded at its precise
-    // sale timestamp — is the only holding present at that timestamp, so the
-    // summed total craters to that single value and the line shows a fake dip.
-    const series = holdings
-      .map((holding) => [...holding.history].sort((a, b) => a.time - b.time))
-      .filter((points) => points.length > 0);
-    const allTimes = Array.from(
-      new Set(series.flatMap((points) => points.map((p) => p.time))),
-    ).sort((a, b) => a - b);
-
-    const valueHistory = allTimes.map((time) => {
-      let value = 0;
-      for (const points of series) {
-        // Only counts while the holding was actually held.
-        if (time < points[0].time || time > points[points.length - 1].time) {
-          continue;
+    // Total value over time = original capital + cumulative per-holding gains.
+    // Each holding contributes (value − its own cost basis) while held; a closed
+    // holding freezes at its realized gain from the sale date to the window end.
+    // Built this way the line stays continuous across a sell→rebuy (the principal
+    // just moves between holdings) and its final point equals currentValue
+    // exactly — including realized profit that the open-positions-only sum
+    // previously dropped, which made the graph end below the headline value.
+    const gainSeries = holdings
+      .filter((h) => h.history.length > 0)
+      .map((h) => {
+        const gains = h.history.map((p) => ({
+          time: p.time,
+          value: p.value - h.amountInvested,
+        }));
+        if (h.status === "closed" && h.realizedChange != null) {
+          // Lock in the realized gain at the sale and hold it to the window end
+          // so the closed position isn't dropped from the summed line.
+          const lastTime = gains[gains.length - 1].time;
+          gains[gains.length - 1] = { time: lastTime, value: h.realizedChange };
+          if (lastTime < to) gains.push({ time: to, value: h.realizedChange });
         }
-        let lastValue = 0;
-        for (let i = points.length - 1; i >= 0; i--) {
-          if (points[i].time <= time) {
-            lastValue = points[i].value;
-            break;
-          }
-        }
-        value += lastValue;
-      }
-      return { time, value };
-    });
+        return gains;
+      });
+    const valueHistory = combineSeries(gainSeries).map((p) => ({
+      time: p.time,
+      value: originalInvested + p.value,
+    }));
 
     // Alpha vs SPY since this investor's inception, on the same return basis
-    // the cards show (gain vs original cash contributed).
-    const originalInvested = investor.originalAmountInvested ?? totalInvested;
-    const investorReturnPct = originalInvested
-      ? ((currentValue - originalInvested) / originalInvested) * 100
-      : 0;
+    // the cards show (total gain vs original cash contributed).
+    const investorReturnPct = changePercent;
     const spyReturn = spyReturnSince(investorStartTs);
     const alphaSpy = spyReturn != null ? investorReturnPct - spyReturn : null;
-    const benchmarkHistory = benchmarkOverlay(valueHistory);
+    // Benchmark: the investor's original external capital invested in SPY at
+    // inception. Reinvesting (sell A → buy B) is internal, so it never resets or
+    // inflates this line — keeping the dashed overlay consistent with the
+    // "vs S&P since inception" alpha metric above (final point lands exactly
+    // origInvested × (1 + spyReturn)). Original capital is assumed to enter at
+    // inception, matching how investors are seeded; later holdings are funded by
+    // sales, and a brand-new investor's line starts at their own inception so
+    // the group S&P still jumps with the added capital.
+    const spyAtInception = getStartPriceForDate(spyBars, investorStartTs);
+    const benchmarkHistory =
+      spyAtInception && spyAtInception > 0
+        ? valueHistory.map((p) => ({
+            time: p.time,
+            value:
+              originalInvested *
+              ((spyClose(p.time) ?? spyAtInception) / spyAtInception),
+          }))
+        : [];
 
     return {
       name: investor.name,

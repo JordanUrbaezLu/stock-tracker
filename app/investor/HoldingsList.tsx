@@ -32,6 +32,8 @@ type Props = {
   isAdmin?: boolean;
   onEdit?: (holding: Holding) => void;
   onDelete?: (holding: Holding) => void;
+  onSell?: (holding: Holding) => void;
+  onReopen?: (holding: Holding) => void;
 };
 
 function formatCurrency(value: number | null | undefined) {
@@ -73,6 +75,8 @@ export function HoldingsList({
   isAdmin = false,
   onEdit,
   onDelete,
+  onSell,
+  onReopen,
 }: Props) {
   const [filter, setFilter] = useState("");
   const [sort, setSort] = useState<"return" | "value" | "name">("return");
@@ -361,6 +365,23 @@ export function HoldingsList({
                   >
                     Edit
                   </button>
+                  {closed ? (
+                    <button
+                      type="button"
+                      onClick={() => onReopen?.(holding)}
+                      className="flex-1 cursor-pointer rounded-lg border border-amber-400/30 px-3 py-2 text-xs font-semibold text-amber-200 transition hover:border-amber-300 hover:bg-amber-400/10 hover:text-white"
+                    >
+                      Reopen
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onSell?.(holding)}
+                      className="flex-1 cursor-pointer rounded-lg border border-amber-400/30 px-3 py-2 text-xs font-semibold text-amber-200 transition hover:border-amber-300 hover:bg-amber-400/10 hover:text-white"
+                    >
+                      Sell
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => onDelete?.(holding)}

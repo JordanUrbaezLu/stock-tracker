@@ -135,6 +135,9 @@ export async function PATCH(
   const invested = body?.invested ?? body?.amount;
   const shares = body?.shares;
   const dateInvested = body?.dateInvested;
+  const soldAmount = body?.soldAmount;
+  const soldDate = body?.soldDate;
+  const clearSold = body?.clearSold === true; // re-open a closed position
   console.log("[admin/allocations] PATCH", {
     slug,
     id,
@@ -143,6 +146,9 @@ export async function PATCH(
     invested,
     shares,
     dateInvested,
+    soldAmount,
+    soldDate,
+    clearSold,
   });
 
   try {
@@ -182,6 +188,20 @@ export async function PATCH(
     }
     if (typeof dateInvested === "string" && dateInvested.trim()) {
       target.dateInvested = dateInvested;
+    }
+    // Sell / re-open the position.
+    if (clearSold) {
+      delete target.soldAmount;
+      delete target.soldDate;
+      delete target.soldShares;
+    } else {
+      if (soldAmount !== undefined && soldAmount !== null) {
+        const soldNum = normalizeNumber(soldAmount);
+        if (soldNum != null && soldNum >= 0) target.soldAmount = soldNum;
+      }
+      if (typeof soldDate === "string" && soldDate.trim()) {
+        target.soldDate = soldDate;
+      }
     }
     if (!target.id) target.id = randomUUID();
 
