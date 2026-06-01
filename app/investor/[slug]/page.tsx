@@ -6,11 +6,14 @@ import { useParams, useRouter } from "next/navigation";
 import { motion, AnimatePresence } from "motion/react";
 import { HoldingsList } from "../HoldingsList";
 import { PortfolioChat } from "../PortfolioChat";
+import { RoastHype } from "../RoastHype";
 import { BackButton } from "../../BackButton";
+import { Badges } from "../../BadgeShelf";
 import { useAdmin } from "../../AdminContext";
 import { useSound } from "../../SoundContext";
 import { Sparkline } from "../../Sparkline";
 import { initials, avatarGradient } from "../../avatar";
+import { isNewInvestor, investorSince } from "../../investorMeta";
 import {
   fetchPortfolio,
   getCachedPortfolio,
@@ -586,15 +589,27 @@ export default function InvestorDetail() {
                   {initials(investor.name)}
                 </span>
                 <div className="min-w-0">
-                  <h1 className="truncate text-2xl font-bold leading-tight text-white sm:text-3xl">
-                    {investor.name}
-                  </h1>
+                  <div className="flex items-center gap-2">
+                    <h1 className="truncate text-2xl font-bold leading-tight text-white sm:text-3xl">
+                      {investor.name}
+                    </h1>
+                    {isNewInvestor(investor.holdings) && (
+                      <span className="shrink-0 inline-flex items-center rounded-full bg-linear-to-r from-rose-500 to-orange-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white shadow-sm shadow-rose-500/30">
+                        New
+                      </span>
+                    )}
+                  </div>
                   <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-slate-500">
                     Investor portfolio · {(investor.holdings || []).length}{" "}
                     {(investor.holdings || []).length === 1
                       ? "holding"
                       : "holdings"}
                   </p>
+                  {investorSince(investor.holdings) && (
+                    <p className="mt-1 text-[11px] font-medium text-slate-500">
+                      Investor since {investorSince(investor.holdings)}
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -700,6 +715,10 @@ export default function InvestorDetail() {
           )}
         </header>
 
+        {!loading && !error && investor && (
+          <Badges investor={investor} allInvestors={data?.investors ?? []} />
+        )}
+
         {!loading &&
           !error &&
           investor &&
@@ -751,6 +770,8 @@ export default function InvestorDetail() {
               </div>
             </section>
           )}
+
+        {!loading && !error && investor && <RoastHype investor={investor} />}
 
         {!loading && !error && investor && (
           <PortfolioChat

@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { useAdmin } from "./AdminContext";
 import { useSound } from "./SoundContext";
@@ -13,6 +13,8 @@ import { AnimatedNumber } from "./AnimatedNumber";
 import { Carousel } from "./Carousel";
 import { celebrate } from "./confetti";
 import { initials, avatarGradient } from "./avatar";
+import { computeBadges, badgeToneClasses } from "./badges";
+import { isNewInvestor } from "./investorMeta";
 import { RichText } from "./RichText";
 import { fetchPortfolio, getCachedPortfolio } from "./portfolioCache";
 
@@ -46,6 +48,7 @@ type HoldingValue = {
   history: HistoryPoint[];
   allocationIndex?: number;
   id?: string;
+  dateInvested?: string | null;
   status?: "open" | "closed";
   soldDate?: string | null;
   proceeds?: number | null;
@@ -356,8 +359,20 @@ function HoldingRow({
   );
 }
 
-function InvestorCard({ investor }: { investor: InvestorValue }) {
+function InvestorCard({
+  investor,
+  allInvestors,
+}: {
+  investor: InvestorValue;
+  allInvestors: InvestorValue[];
+}) {
   const { play } = useSound();
+  // Earned achievement badges — a compact teaser strip that hints at the full
+  // shelf on the investor's detail page.
+  const badges = computeBadges(investor, allInvestors);
+  const isNew = isNewInvestor(investor.holdings);
+  // Which badge's title tooltip is currently revealed (tap the emoji to show it).
+  const [tipBadge, setTipBadge] = useState<string | null>(null);
   const originalGain = investor.currentValue - investor.originalAmountInvested;
   const gainPct = investor.originalAmountInvested
     ? (originalGain / investor.originalAmountInvested) * 100
@@ -444,9 +459,16 @@ function InvestorCard({ investor }: { investor: InvestorValue }) {
                 {initials(investor.name)}
               </span>
               <div className="min-w-0">
-                <p className="truncate text-base font-semibold leading-tight text-white">
-                  {investor.name}
-                </p>
+                <div className="flex items-center gap-1.5">
+                  <p className="truncate text-base font-semibold leading-tight text-white">
+                    {investor.name}
+                  </p>
+                  {isNew && (
+                    <span className="shrink-0 inline-flex items-center rounded-full bg-linear-to-r from-rose-500 to-orange-500 px-1.5 py-px text-[8px] font-bold uppercase tracking-wide text-white shadow-sm shadow-rose-500/30">
+                      New
+                    </span>
+                  )}
+                </div>
                 <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-slate-500">
                   Investor
                 </p>
@@ -471,6 +493,52 @@ function InvestorCard({ investor }: { investor: InvestorValue }) {
                   {formatCurrency(Math.abs(investor.dayChange ?? 0))})
                 </span>
               </p>
+            )}
+            {badges.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-1">
+                {badges.slice(0, 4).map((b) => (
+                  <span key={b.id} className="relative">
+                    <button
+                      type="button"
+                      aria-label={b.label}
+                      onClick={(e) => {
+                        // Inside the card's <Link>: don't navigate — just reveal
+                        // the badge title, tooltip-style.
+                        e.preventDefault();
+                        e.stopPropagation();
+                        play("tap");
+                        setTipBadge((cur) => (cur === b.id ? null : b.id));
+                      }}
+                      className={`grid h-6 w-6 cursor-pointer place-items-center rounded-full bg-linear-to-br ${badgeToneClasses(
+                        b.tone,
+                      )} text-[11px] ring-1 transition ${
+                        tipBadge === b.id ? "ring-2 ring-white/60" : ""
+                      }`}
+                    >
+                      {b.emoji}
+                    </button>
+                    {tipBadge === b.id && (
+                      <motion.span
+                        initial={{ opacity: 0, y: 4, scale: 0.92 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        transition={{ type: "spring", stiffness: 420, damping: 26 }}
+                        className="pointer-events-none absolute bottom-full left-0 z-30 mb-[9px] whitespace-nowrap rounded-lg border border-white/15 bg-slate-900/95 px-2.5 py-1 text-[10px] font-semibold text-white shadow-lg shadow-black/50 backdrop-blur-sm"
+                      >
+                        {b.label}
+                        <span
+                          aria-hidden
+                          className="absolute -bottom-1 left-[7px] h-2 w-2 rotate-45 border-b border-r border-white/15 bg-slate-900/95"
+                        />
+                      </motion.span>
+                    )}
+                  </span>
+                ))}
+                {badges.length > 4 && (
+                  <span className="text-[10px] font-semibold text-slate-400">
+                    +{badges.length - 4}
+                  </span>
+                )}
+              </div>
             )}
           </div>
           {hasHistory && (
@@ -591,10 +659,6 @@ type Board = {
   positive: (i: InvestorValue) => boolean;
 };
 
-function alphaOf(i: InvestorValue): number | null {
-  return i.alphaSpy ?? null;
-}
-
 const LEADERBOARDS: Board[] = [
   {
     id: "value",
@@ -617,22 +681,6 @@ const LEADERBOARDS: Board[] = [
     metric: returnPct,
     value: (i) => formatPercent(returnPct(i)),
     positive: (i) => returnPct(i) >= 0,
-  },
-  {
-    id: "alpha",
-    title: "Alpha League",
-    icon: "⚡",
-    bar: "from-amber-400/30",
-    note: "Return vs S&P 500 · since inception",
-    sort: (a, b) => (alphaOf(b) ?? -Infinity) - (alphaOf(a) ?? -Infinity),
-    metric: (i) => alphaOf(i) ?? 0,
-    value: (i) => {
-      const a = alphaOf(i);
-      return a == null
-        ? "—"
-        : `${a >= 0 ? "+" : "−"}${Math.abs(a).toFixed(1)}% vs S&P`;
-    },
-    positive: (i) => (alphaOf(i) ?? 0) >= 0,
   },
 ];
 
@@ -1067,9 +1115,24 @@ export default function Home() {
   }, [newInvestorName, loadPortfolios, isAdmin, play]);
 
   const rawInvestors = data?.investors ?? [];
-  // Leaderboard: best return first, so the front of the carousel is "who's winning".
+  // Best return first — used for the group sums and as the leaderboards' input
+  // (each board re-sorts internally, so this order only seeds those views).
   const investors = [...rawInvestors].sort((a, b) => returnPct(b) - returnPct(a));
   const count = investors.length;
+
+  // Shuffle the investor CARDS on each page load so no one is permanently first.
+  // Keyed by the set of slugs: stable across re-renders within a mount (no
+  // reshuffle on data refetch), re-randomized on a fresh mount or roster change.
+  const cardKey = investors.map((i) => i.slug).join(",");
+  const cardInvestors = useMemo(() => {
+    const arr = [...investors];
+    for (let i = arr.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cardKey]);
 
   const groupCurrent = investors.reduce((s, i) => s + i.currentValue, 0);
   const groupOriginal = investors.reduce(
@@ -1252,9 +1315,13 @@ export default function Home() {
               // and drop shadow aren't cut into a square corner by the viewport.
               viewportClassName="rounded-[2rem]"
               slidePadding="px-1 py-1.5"
-              labels={investors.map((inv) => inv.name)}
-              slides={investors.map((investor) => (
-                <InvestorCard key={investor.slug} investor={investor} />
+              labels={cardInvestors.map((inv) => inv.name)}
+              slides={cardInvestors.map((investor) => (
+                <InvestorCard
+                  key={investor.slug}
+                  investor={investor}
+                  allInvestors={investors}
+                />
               ))}
             />
           )}
