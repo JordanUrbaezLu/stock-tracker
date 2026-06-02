@@ -391,7 +391,6 @@ function InvestorCard({
   // group overview chart, where the full window makes it a fair comparison.
   const cardHistory = sliceLastDays(investor.valueHistory, 30);
   const hasHistory = cardHistory.length > 1;
-  const best = topPerformer(mergedHoldings);
 
   // Personalized AI encouragement. Refetched per investor (and on each reload,
   // since `investor` is recreated when the portfolio refreshes). The endpoint
@@ -427,8 +426,10 @@ function InvestorCard({
       }),
     })
       .then((r) => (r.ok ? r.json() : null))
-      .then((j: { message?: string } | null) => {
-        if (j?.message) setInsight(j.message);
+      .then((j: { message?: string; source?: string } | null) => {
+        // Only surface a real AI (or cached AI) line — never the templated
+        // fallback. Until then the card shows nothing.
+        if (j?.message && j.source !== "fallback") setInsight(j.message);
       })
       .catch(() => null);
     return () => controller.abort();
@@ -591,23 +592,13 @@ function InvestorCard({
           </div>
         </div>
 
-        {(insight || (best && (best.changePercent ?? 0) > 0)) && (
+        {insight && (
           <div className="relative flex items-start gap-2 rounded-2xl border border-emerald-400/20 bg-emerald-500/10 px-3 py-2">
             <span className="text-base leading-5" aria-hidden>
-              {insight ? "✨" : "🔥"}
+              ✨
             </span>
             <p className="text-xs leading-5 text-emerald-100">
-              {insight ? (
-                <RichText text={insight} />
-              ) : (
-                <>
-                  <span className="font-semibold">{best!.symbol}</span> leading
-                  at{" "}
-                  <span className="font-semibold">
-                    {formatPercent(best!.changePercent)}
-                  </span>
-                </>
-              )}
+              <RichText text={insight} />
             </p>
           </div>
         )}
