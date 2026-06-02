@@ -1,6 +1,10 @@
 /** Brand-colored celebratory confetti. No-ops on the server. */
 export async function celebrate() {
   if (typeof window === "undefined") return;
+  // Hold off ~300ms so the page can finish its initial render/animations first —
+  // firing immediately competed for CPU and caused noticeable lag on the home
+  // screen.
+  await new Promise((resolve) => setTimeout(resolve, 300));
   const confetti = (await import("canvas-confetti")).default;
   const colors = ["#22d3ee", "#a855f7", "#34d399", "#fbbf24", "#f472b6"];
   const common = {
