@@ -54,8 +54,7 @@ export function RoastHype({ investor }: { investor: RoastInvestor }) {
     if (!text || shown < text.length || finished.current) return;
     finished.current = true;
     if (mode === "hype") {
-      celebrate();
-      play("coin");
+      celebrate(() => play("coin")); // sound fires with the confetti burst
     }
   }, [text, shown, mode, play]);
 

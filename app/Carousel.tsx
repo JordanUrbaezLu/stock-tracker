@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import { WheelGesturesPlugin } from "embla-carousel-wheel-gestures";
 import { useSound } from "./SoundContext";
@@ -23,6 +23,13 @@ type CarouselProps = {
    *  when slides are rounded cards with shadows, so the overflow clip follows
    *  the card corners instead of cutting a square corner around the shadow. */
   viewportClassName?: string;
+  /** Only mount a small window around the active slide (one behind, two ahead);
+   *  render the rest as empty same-width placeholders. Massively cuts work on
+   *  mobile — off-screen cards no longer run sparkline pulses, spin logo rings,
+   *  fetch insights, or mount animations. Slide widths are unaffected
+   *  (basis-full), so Embla's snapping is unchanged; placeholders stretch to the
+   *  row height (which is locked grow-only so it never shifts). */
+  virtualize?: boolean;
 };
 
 /**
@@ -39,6 +46,7 @@ export function Carousel({
   className,
   slidePadding = "px-0.5",
   viewportClassName = "",
+  virtualize = false,
 }: CarouselProps) {
   const [emblaRef, embla] = useEmblaCarousel(
     { align: "center", containScroll: "trimSnaps", duration: 20 },
@@ -47,6 +55,12 @@ export function Carousel({
   const [selected, setSelected] = useState(0);
   const [canPrev, setCanPrev] = useState(false);
   const [canNext, setCanNext] = useState(false);
+  const trackRef = useRef<HTMLDivElement>(null);
+  // When virtualizing, lock the track to the tallest slide it has rendered so
+  // swapping placeholders in/out never changes the carousel's height. Grow-only,
+  // and measured live — so it adapts per device automatically (e.g. the graph
+  // slide is ~198px on phones but ~231px on tablet/desktop) with no hardcoding.
+  const [lockedHeight, setLockedHeight] = useState(0);
   const { swipe } = useSound();
   // Pitch follows a consecutive-swipe COMBO, not the slide index. A forward
   // swipe sits ABOVE center, a back swipe BELOW it, and each additional swipe
@@ -54,43 +68,87 @@ export function Carousel({
   // a fresh run, so alternating right/left gives a distinct high/low (not the
   // same note), and holding a direction keeps rising/falling.
   const CENTER = 4;
-  const prevIndexRef = useRef(0);
+  const lastNearestRef = useRef(0);
   const dirRef = useRef(0);
   const comboRef = useRef(0);
 
-  const sync = useCallback(() => {
-    if (!embla) return;
-    setSelected(embla.selectedScrollSnap());
-    setCanPrev(embla.canScrollPrev());
-    setCanNext(embla.canScrollNext());
-  }, [embla]);
+  useEffect(() => {
+    const el = trackRef.current;
+    if (!virtualize || !el || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => {
+      const h = el.getBoundingClientRect().height;
+      setLockedHeight((prev) => (h > prev ? h : prev)); // grow-only → no shrink/loop
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [virtualize]);
 
   useEffect(() => {
     if (!embla) return;
-    sync(); // initial state only — no sound on mount
-    prevIndexRef.current = embla.selectedScrollSnap();
-    const onSelect = () => {
-      sync();
-      const cur = embla.selectedScrollSnap();
-      const dir = Math.sign(cur - prevIndexRef.current);
-      prevIndexRef.current = cur;
-      if (dir === 0) return; // no movement → no sound
+    const syncNav = () => {
+      setCanPrev(embla.canScrollPrev());
+      setCanNext(embla.canScrollNext());
+    };
+    // The snap index the carousel is currently closest to (updates continuously
+    // as you scroll, unlike `selectedScrollSnap()` which only commits on settle).
+    const nearestSnap = () => {
+      const list = embla.scrollSnapList();
+      const p = embla.scrollProgress();
+      let idx = 0;
+      let best = Infinity;
+      for (let i = 0; i < list.length; i++) {
+        const d = Math.abs(list[i] - p);
+        if (d < best) {
+          best = d;
+          idx = i;
+        }
+      }
+      return idx;
+    };
+
+    const init = embla.selectedScrollSnap();
+    lastNearestRef.current = init;
+    setSelected(init);
+    syncNav();
+
+    // Drive the dot indicator + swipe sound the INSTANT the carousel crosses
+    // into a new slide (the `scroll` event), not on `select`/settle. On a Mac
+    // trackpad, inertial scrolling keeps `select` from firing for ~1-2s, which
+    // made the dot + sound feel detached from the gesture you'd already done.
+    const onScroll = () => {
+      const nearest = nearestSnap();
+      if (nearest === lastNearestRef.current) return;
+      const dir = Math.sign(nearest - lastNearestRef.current);
+      lastNearestRef.current = nearest;
+      setSelected(nearest);
+      syncNav();
       if (dir === dirRef.current) {
         comboRef.current += 1; // consecutive same-direction → extend the run
       } else {
         dirRef.current = dir; // direction changed → fresh run from center
         comboRef.current = 1;
       }
-      const step = Math.max(0, Math.min(9, CENTER + dir * comboRef.current));
-      swipe(step);
+      swipe(Math.max(0, Math.min(9, CENTER + dir * comboRef.current)));
     };
-    embla.on("select", onSelect);
-    embla.on("reInit", sync);
+    // Snap the final index exactly on settle (in case scroll-progress rounding
+    // left it a hair off). The render window follows `selected`, so it has
+    // already expanded ahead during the scroll — nothing waits for settle.
+    const onSettle = () => {
+      const sel = embla.selectedScrollSnap();
+      lastNearestRef.current = sel;
+      setSelected(sel);
+      syncNav();
+    };
+
+    embla.on("scroll", onScroll);
+    embla.on("settle", onSettle);
+    embla.on("reInit", syncNav);
     return () => {
-      embla.off("select", onSelect);
-      embla.off("reInit", sync);
+      embla.off("scroll", onScroll);
+      embla.off("settle", onSettle);
+      embla.off("reInit", syncNav);
     };
-  }, [embla, sync, swipe]);
+  }, [embla, swipe]);
 
   const count = slides.length;
   const multi = count > 1;
@@ -101,15 +159,26 @@ export function Carousel({
     <div className={`relative ${className ?? ""}`}>
       <div className={`overflow-hidden ${viewportClassName}`} ref={emblaRef}>
         <div
+          ref={trackRef}
           className="flex"
-          style={{ touchAction: "pan-y", willChange: "transform" }}
+          style={{
+            touchAction: "pan-y",
+            willChange: "transform",
+            minHeight: virtualize && lockedHeight ? lockedHeight : undefined,
+          }}
         >
           {slides.map((slide, i) => (
             <div
               key={i}
               className={`min-w-0 shrink-0 grow-0 basis-full ${slidePadding}`}
             >
-              {slide}
+              {/* Virtualized: render one slide behind and TWO ahead of the
+                  CURRENT slide (driven by the live scroll position, so the +2
+                  cards are always mounted before you reach them — you never hit
+                  an unmounted placeholder). */}
+              {!virtualize || (i >= selected - 1 && i <= selected + 2)
+                ? slide
+                : null}
             </div>
           ))}
         </div>

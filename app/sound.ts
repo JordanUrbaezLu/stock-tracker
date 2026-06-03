@@ -55,6 +55,15 @@ export async function createSoundEngine(): Promise<SoundEngine | null> {
     return null;
   }
 
+  // Tighten the scheduling look-ahead so tap/swipe feedback fires close to the
+  // gesture instead of ~100ms later (Tone's default lookAhead is 0.1s, which
+  // reads as laggy for one-shot UI sounds).
+  try {
+    Tone.getContext().lookAhead = 0.03;
+  } catch {
+    /* older Tone / unusual context — keep the default */
+  }
+
   // Master chain: gentle gain → softening low-pass → limiter → speakers.
   const master = new Tone.Gain(0.55);
   const softener = new Tone.Filter({ type: "lowpass", frequency: 7000, Q: 0.4 });
