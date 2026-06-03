@@ -57,9 +57,11 @@ export async function createSoundEngine(): Promise<SoundEngine | null> {
 
   // Tighten the scheduling look-ahead so tap/swipe feedback fires close to the
   // gesture instead of ~100ms later (Tone's default lookAhead is 0.1s, which
-  // reads as laggy for one-shot UI sounds).
+  // reads as laggy for one-shot UI sounds). 0.02s stays comfortably above the
+  // audio quantum while feeling immediate; the (soft, infrequent) search loop
+  // tolerates the tighter window fine.
   try {
-    Tone.getContext().lookAhead = 0.03;
+    Tone.getContext().lookAhead = 0.02;
   } catch {
     /* older Tone / unusual context — keep the default */
   }
@@ -231,8 +233,10 @@ export async function createSoundEngine(): Promise<SoundEngine | null> {
       noise.triggerAttackRelease(0.13, t);
       swipeTone.frequency.setValueAtTime(440, t);
       swipeTone.triggerAttackRelease(560 + i * 60, 0.14, t, 0.45); // glide lifts with index
-      pluck.triggerAttack(pop, t + 0.085);
-      soft.triggerAttackRelease(shimmer, 0.07, t + 0.11, 0.28);
+      // Land the pluck "pop" (the prominent part of the swipe) almost on the
+      // gesture instead of ~85ms later, so the slide sound feels instant.
+      pluck.triggerAttack(pop, t + 0.015);
+      soft.triggerAttackRelease(shimmer, 0.07, t + 0.05, 0.28);
     } catch {
       /* ignore */
     }

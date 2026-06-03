@@ -119,15 +119,15 @@ export function Badges({
   if (badges.length === 0) return null;
 
   return (
-    <section className="glass relative rounded-3xl p-5 shadow-2xl shadow-black/30 sm:p-6">
-      {/* NEW badge sitting on the card's top border. */}
+    // Outer wrapper carries the NEW badge so it can sit on the border, while the
+    // card keeps overflow-hidden (which is what actually clips the background +
+    // blur to the rounded corners — the badge would otherwise be clipped).
+    <div className="relative">
       <span className="absolute -top-2 right-5 z-20 inline-flex items-center rounded-full bg-linear-to-r from-rose-500 to-orange-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white shadow-md shadow-rose-500/40 ring-1 ring-white/20">
         New
       </span>
-      {/* Clip the decorative blur to the rounded card without clipping the badge. */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-3xl">
-        <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-amber-400/10 blur-3xl" />
-      </div>
+      <section className="glass relative overflow-hidden rounded-3xl p-5 shadow-2xl shadow-black/30 sm:p-6">
+        <div className="pointer-events-none absolute -right-16 -top-16 h-44 w-44 rounded-full bg-amber-400/10 blur-3xl" />
       <div className="relative mb-3 flex items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-lg font-semibold text-white">
           <span aria-hidden>🎖️</span> Achievements
@@ -170,6 +170,7 @@ export function Badges({
           </motion.button>
         ))}
       </div>
+      </section>
 
       {mounted &&
         createPortal(
@@ -247,6 +248,6 @@ export function Badges({
           </AnimatePresence>,
           document.body,
         )}
-    </section>
+    </div>
   );
 }
