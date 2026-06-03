@@ -997,6 +997,9 @@ function HeroCarousel({
         slides={slides}
         labels={labels}
         hint={(label) => `${label} · swipe for more`}
+        // Only the visible hero slide + neighbors mount; the track locks to the
+        // tallest (the graph slide) so the height stays steady across swipes.
+        virtualize
       />
     </div>
   );
@@ -1052,10 +1055,10 @@ export default function Home() {
     loadPortfolios().catch(() => null);
   }, [loadPortfolios]);
 
-  // Warm the browser cache with every holding's logo as soon as the data lands,
-  // so cards/carousel/detail pages render logos instantly instead of fetching
-  // them one-by-one as you cycle through. crossOrigin is matched to <CompanyLogo>
-  // so FMP's CORS responses are reused rather than re-fetched.
+  // Warm the browser cache with every holding's logo so cards/carousel/detail
+  // pages render logos instantly. Deferred to idle time (not the initial paint)
+  // so the image fetches/decodes don't compete with first render on mobile.
+  // crossOrigin matches <CompanyLogo> so FMP's CORS responses are reused.
   useEffect(() => {
     if (typeof window === "undefined" || !data?.investors) return;
     const urls = new Set<string>();
@@ -1064,11 +1067,22 @@ export default function Home() {
         if (h.logo) urls.add(h.logo);
       }
     }
-    urls.forEach((u) => {
-      const img = new window.Image();
-      if (u.includes("financialmodelingprep.com")) img.crossOrigin = "anonymous";
-      img.src = u;
-    });
+    if (urls.size === 0) return;
+    const preload = () => {
+      urls.forEach((u) => {
+        const img = new window.Image();
+        if (u.includes("financialmodelingprep.com"))
+          img.crossOrigin = "anonymous";
+        img.src = u;
+      });
+    };
+    const ric = window.requestIdleCallback;
+    if (ric) {
+      const id = ric(preload, { timeout: 2500 });
+      return () => window.cancelIdleCallback?.(id);
+    }
+    const t = window.setTimeout(preload, 800);
+    return () => window.clearTimeout(t);
   }, [data]);
 
   const handleCreateInvestor = useCallback(async () => {
@@ -1158,8 +1172,7 @@ export default function Home() {
     if (count > 0 && groupGain > 0) {
       celebrated.current = true;
       const t = setTimeout(() => {
-        celebrate();
-        play("success");
+        celebrate(() => play("success")); // sound fires with the confetti burst
       }, 350);
       return () => clearTimeout(t);
     }
@@ -1302,6 +1315,10 @@ export default function Home() {
               arrows
               hint="Swipe to explore"
               hintMobileOnly
+              // Only mount the visible card + its neighbors — keeps the home
+              // screen light on phones as the investor count grows (each card
+              // runs a sparkline pulse, logo animations, and an AI insight fetch).
+              virtualize
               // Round the clip + pad each slide so the card's rounded corners
               // and drop shadow aren't cut into a square corner by the viewport.
               viewportClassName="rounded-[2rem]"

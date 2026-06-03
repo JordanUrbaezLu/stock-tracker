@@ -407,3 +407,38 @@ button.company-logo {
     scroll-behavior: auto !important;
   }
 }
+
+/* Skip rendering/painting below-the-fold sections until they're scrolled near.
+   The `auto` keyword remembers each section's real size after first paint, so
+   the scrollbar/scroll position stays stable. */
+.cv-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 480px;
+}
+
+/* Touch devices (phones + iPads, including an iPad with a trackpad — hence
+   any-pointer, not the primary pointer): backdrop-filter blur and continuously
+   spinning blurred logo rings are the heaviest compositing costs — they
+   re-rasterize every frame during scroll/drag/confetti and cause the jank +
+   late audio. Swap the glass blur for a near-opaque panel (visually near-
+   identical on these screens) and freeze the always-animating decorations. */
+@media (any-pointer: coarse) {
+  .glass::before {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    background: linear-gradient(
+      160deg,
+      rgba(23, 29, 52, 0.82),
+      rgba(9, 12, 26, 0.92)
+    );
+  }
+  .company-logo__ring {
+    animation: none;
+    filter: blur(3px);
+    opacity: 0.3;
+  }
+  /* Freeze the fixed full-screen aurora — a continuously-compositing layer. */
+  .app-backdrop::after {
+    animation: none;
+  }
+}

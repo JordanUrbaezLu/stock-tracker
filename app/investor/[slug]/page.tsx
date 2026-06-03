@@ -781,7 +781,7 @@ export default function InvestorDetail() {
         )}
 
         {!loading && !error && investor && (
-          <section className="glass overflow-hidden rounded-3xl p-5 shadow-2xl shadow-black/30 sm:p-6">
+          <section className="glass cv-auto overflow-hidden rounded-3xl p-5 shadow-2xl shadow-black/30 sm:p-6">
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-lg font-semibold text-white">Holdings</h2>

@@ -71,8 +71,7 @@ export function Badges({
 
     const celebrated = readIds(celebratedKey);
     if (ids.some((id) => !celebrated.includes(id))) {
-      play("success");
-      celebrate();
+      celebrate(() => play("success")); // sound fires with the confetti burst
       writeIds(celebratedKey, ids);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
