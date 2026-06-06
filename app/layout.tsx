@@ -17,6 +17,11 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "Stock Tracker",
   description: "Look up live stock prices by ticker symbol.",
+  appleWebApp: {
+    capable: true,
+    title: "Stock Tracker",
+    statusBarStyle: "black-translucent",
+  },
 };
 
 export default function RootLayout({
