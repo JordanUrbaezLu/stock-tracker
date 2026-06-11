@@ -10,6 +10,7 @@ import { SoundToggle } from "./SoundToggle";
 import { Sparkline } from "./Sparkline";
 import { CompanyLogo } from "./CompanyLogo";
 import { AnimatedNumber } from "./AnimatedNumber";
+import { TickerTape } from "./TickerTape";
 import { Carousel } from "./Carousel";
 import { celebrate } from "./confetti";
 import { initials, avatarGradient } from "./avatar";
@@ -897,15 +898,27 @@ function HeroCarousel({
 }) {
   const multi = count > 1;
   const overview = (
-    <div className="flex h-full flex-col">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
+    <div className="relative flex h-full flex-col">
+      {/* Performance-reactive aurora behind the hero figure — the group's mood,
+          green when up and red when down. A contained radial (not a clipped
+          blur ball) so it fades out smoothly inside the card with no hard edge. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 transition-[background] duration-700"
+        style={{
+          background: `radial-gradient(78% 88% at 20% 0%, ${
+            groupGain >= 0 ? "rgba(52,211,153,0.2)" : "rgba(251,113,133,0.2)"
+          }, transparent 60%)`,
+        }}
+      />
+      <p className="relative text-[11px] font-semibold uppercase tracking-[0.28em] text-slate-400">
         Group portfolio · {count} {count === 1 ? "investor" : "investors"}
       </p>
-      <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1.5 sm:gap-x-3">
+      <div className="relative mt-1 flex flex-wrap items-center gap-x-2 gap-y-1.5 sm:gap-x-3">
         <AnimatedNumber
           value={groupCurrent}
           format={formatCurrency}
-          className="text-2xl font-bold tracking-tight text-white sm:text-3xl"
+          className="text-[1.7rem] font-bold tracking-tight text-white sm:text-4xl"
         />
         <div className="flex shrink-0 items-center gap-1.5">
           <span
@@ -1125,6 +1138,22 @@ export default function Home() {
   const investors = [...rawInvestors].sort((a, b) => returnPct(b) - returnPct(a));
   const count = investors.length;
 
+  // Live broadcast ticker: every distinct holding across the league, ordered by
+  // biggest mover so the tape leads with the action.
+  const tickerTicks = (() => {
+    const seen = new Map<string, number | null>();
+    for (const inv of investors) {
+      for (const h of inv.holdings ?? []) {
+        if (h.symbol && !seen.has(h.symbol)) {
+          seen.set(h.symbol, h.changePercent ?? null);
+        }
+      }
+    }
+    return [...seen.entries()]
+      .map(([symbol, changePercent]) => ({ symbol, changePercent }))
+      .sort((a, b) => Math.abs(b.changePercent ?? 0) - Math.abs(a.changePercent ?? 0));
+  })();
+
   // Shuffle the investor CARDS on each page load so no one is permanently first.
   // Keyed by the set of slugs: stable across re-renders within a mount (no
   // reshuffle on data refetch), re-randomized on a fresh mount or roster change.
@@ -1179,8 +1208,11 @@ export default function Home() {
   }, [loading, error, count, groupGain, play]);
 
   return (
-    <div className="app-backdrop min-h-screen overflow-x-clip text-slate-100">
-      <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-5 px-4 pb-10 pt-3 sm:px-6 sm:pt-4">
+    <div
+      className="app-backdrop min-h-screen overflow-x-clip text-slate-100"
+      data-mood={count > 0 ? (groupGain >= 0 ? "up" : "down") : undefined}
+    >
+      <main className="stagger-children mx-auto flex min-h-screen max-w-3xl flex-col gap-5 px-4 pb-10 pt-3 sm:px-6 sm:pt-4">
         <header className="glass rounded-2xl px-4 py-3 shadow-xl shadow-black/30 sm:px-5">
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-3">
@@ -1262,6 +1294,10 @@ export default function Home() {
             </div>
           </div>
         </header>
+
+        {!loading && !error && tickerTicks.length > 0 && (
+          <TickerTape ticks={tickerTicks} />
+        )}
 
         {!loading && !error && count > 0 && (
           <HeroCarousel

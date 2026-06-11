@@ -56,5 +56,11 @@ export function AnimatedNumber({
     };
   }, [value, durationMs]);
 
-  return <span className={className}>{format(display)}</span>;
+  // Every hero figure shares the display face + tabular figures so it reads as
+  // one confident, non-jittering number.
+  return (
+    <span className={`font-display tnum ${className ?? ""}`}>
+      {format(display)}
+    </span>
+  );
 }

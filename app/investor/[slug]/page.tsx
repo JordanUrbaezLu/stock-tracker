@@ -542,8 +542,11 @@ export default function InvestorDetail() {
       : 0;
 
   return (
-    <div className="app-backdrop min-h-screen text-slate-100">
-      <main className="mx-auto flex min-h-screen max-w-3xl flex-col gap-4 px-4 py-6 sm:px-6 sm:py-8">
+    <div
+      className="app-backdrop min-h-screen text-slate-100"
+      data-mood={investor ? (originalGain >= 0 ? "up" : "down") : undefined}
+    >
+      <main className="stagger-children mx-auto flex min-h-screen max-w-3xl flex-col gap-4 px-4 py-6 sm:px-6 sm:py-8">
         <header className="glass relative flex flex-col gap-4 overflow-hidden rounded-3xl p-5 shadow-2xl shadow-black/30 sm:p-6">
           <div
             aria-hidden

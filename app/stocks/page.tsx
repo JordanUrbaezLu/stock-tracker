@@ -187,7 +187,7 @@ export default function StocksPage() {
 
   return (
     <div className="app-backdrop min-h-screen overflow-x-clip text-slate-100">
-      <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-6 px-4 pb-12 pt-4 sm:px-6">
+      <main className="stagger-children mx-auto flex min-h-screen max-w-2xl flex-col gap-6 px-4 pb-12 pt-4 sm:px-6">
         <header className="glass rounded-2xl px-3 py-3 shadow-xl shadow-black/30 sm:px-5">
           <div className="flex items-center justify-between gap-2 sm:gap-3">
             <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">

@@ -392,7 +392,7 @@ function LookupContent() {
 
   return (
     <div className="app-backdrop min-h-screen overflow-x-clip text-slate-100">
-      <main className="mx-auto flex min-h-screen max-w-2xl flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8">
+      <main className="stagger-children mx-auto flex min-h-screen max-w-2xl flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8">
         <header className="glass relative overflow-hidden rounded-2xl px-3 py-3 shadow-xl shadow-black/30 sm:px-5">
           <div className="relative flex items-center justify-between gap-2 sm:gap-3">
             <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
