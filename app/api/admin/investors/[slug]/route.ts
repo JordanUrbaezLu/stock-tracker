@@ -17,11 +17,36 @@ export async function PATCH(
 
   const { slug } = await Promise.resolve(params);
   const body = await request.json().catch(() => ({}));
-  const name = typeof body?.name === "string" ? body.name.trim() : "";
-  console.log("[admin/investor] PATCH", { slug, name });
+  const name =
+    typeof body?.name === "string" ? body.name.trim() : undefined;
+  // "Total contributed" — the real external cash put in. Setting it explicitly
+  // overrides the auto-sum; passing null/"" clears it back to the auto-sum.
+  const hasOriginal =
+    body != null && Object.prototype.hasOwnProperty.call(body, "originalAmountInvested");
+  const rawOriginal = body?.originalAmountInvested;
+  console.log("[admin/investor] PATCH", { slug, name, original: rawOriginal });
 
-  if (!name) {
-    return NextResponse.json({ error: "Name is required." }, { status: 400 });
+  if (name === undefined && !hasOriginal) {
+    return NextResponse.json({ error: "Nothing to update." }, { status: 400 });
+  }
+  if (name !== undefined && !name) {
+    return NextResponse.json({ error: "Name cannot be empty." }, { status: 400 });
+  }
+
+  let original: number | null | undefined;
+  if (hasOriginal) {
+    if (rawOriginal === null || rawOriginal === "") {
+      original = null; // clear → revert to the auto-summed total
+    } else {
+      const n = Number(rawOriginal);
+      if (!Number.isFinite(n) || n < 0) {
+        return NextResponse.json(
+          { error: "Total contributed must be a positive number." },
+          { status: 400 },
+        );
+      }
+      original = n;
+    }
   }
 
   try {
@@ -36,26 +61,38 @@ export async function PATCH(
       return NextResponse.json({ error: "Investor not found." }, { status: 404 });
     }
 
-    const lower = name.toLowerCase();
-    if (
-      investors.some(
-        (inv, idx) => idx !== targetIndex && inv.name?.toLowerCase() === lower,
-      )
-    ) {
-      return NextResponse.json(
-        { error: "Another investor already has this name." },
-        { status: 409 },
-      );
+    if (name) {
+      const lower = name.toLowerCase();
+      if (
+        investors.some(
+          (inv, idx) => idx !== targetIndex && inv.name?.toLowerCase() === lower,
+        )
+      ) {
+        return NextResponse.json(
+          { error: "Another investor already has this name." },
+          { status: 409 },
+        );
+      }
+      investors[targetIndex].name = name;
     }
 
-    investors[targetIndex].name = name;
+    if (hasOriginal) {
+      if (original === null) {
+        delete investors[targetIndex].originalAmountInvested;
+      } else {
+        investors[targetIndex].originalAmountInvested = original;
+      }
+    }
 
     await collection.updateOne(
       { _id: doc._id },
       { $set: { investors } },
     );
 
-    return NextResponse.json({ ok: true, slug: slugify(name) });
+    return NextResponse.json({
+      ok: true,
+      slug: name ? slugify(name) : slug,
+    });
   } catch (error) {
     console.error("Update investor failed", error);
     return NextResponse.json(
