@@ -162,6 +162,8 @@ export default function InvestorDetail() {
   const [investorError, setInvestorError] = useState<string | null>(null);
   const [showRename, setShowRename] = useState(false);
   const [renameValue, setRenameValue] = useState("");
+  const [showInvested, setShowInvested] = useState(false);
+  const [investedValue, setInvestedValue] = useState("");
   const [modalMode, setModalMode] = useState<"add" | "edit">("add");
   const [formSymbol, setFormSymbol] = useState("");
   const [formInvested, setFormInvested] = useState("");
@@ -502,6 +504,46 @@ export default function InvestorDetail() {
     [investor, loadPortfolio, router, isAdmin],
   );
 
+  // Set the "total contributed" (real external cash put in). Overrides the
+  // auto-sum; blank clears it back to the auto-sum.
+  const handleSetInvested = useCallback(
+    async (raw: string) => {
+      if (!investor || !isAdmin) {
+        setInvestorError("Admin access required.");
+        return;
+      }
+      const trimmed = raw.trim();
+      const original = trimmed === "" ? null : Number(trimmed);
+      if (original !== null && (!Number.isFinite(original) || original < 0)) {
+        setInvestorError("Enter a positive dollar amount (or leave blank to auto-sum).");
+        return;
+      }
+      setSaving(true);
+      setInvestorError(null);
+      try {
+        const res = await fetch(`/api/admin/investors/${investor.slug}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ originalAmountInvested: original }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          throw new Error(json?.error || "Unable to update total contributed.");
+        }
+        await loadPortfolio(true);
+        setShowInvested(false);
+        setInvestedValue("");
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Unable to update total contributed.";
+        setInvestorError(message);
+      } finally {
+        setSaving(false);
+      }
+    },
+    [investor, isAdmin, loadPortfolio],
+  );
+
   const handleDeleteInvestor = useCallback(async () => {
     if (!investor || !isAdmin) return;
     setConfirmInvestor(true);
@@ -706,6 +748,21 @@ export default function InvestorDetail() {
                 className="cursor-pointer rounded-lg border border-cyan-500/40 px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/10 hover:text-white"
               >
                 Rename investor
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setInvestedValue(
+                    investor.originalAmountInvested != null
+                      ? String(investor.originalAmountInvested)
+                      : "",
+                  );
+                  setInvestorError(null);
+                  setShowInvested(true);
+                }}
+                className="cursor-pointer rounded-lg border border-emerald-500/40 px-3 py-2 text-xs font-semibold text-emerald-100 transition hover:border-emerald-300 hover:bg-emerald-500/10 hover:text-white"
+              >
+                Edit invested
               </button>
               <button
                 type="button"
@@ -946,6 +1003,59 @@ export default function InvestorDetail() {
               onClick={() => handleRename(renameValue)}
               disabled={saving}
               className="cursor-pointer rounded-xl bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {saving ? "Saving..." : "Save"}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={showInvested}
+        title="Edit total contributed"
+        onClose={() => {
+          if (saving) return;
+          setShowInvested(false);
+        }}
+      >
+        <div className="space-y-3">
+          <label className="block text-sm text-slate-200">
+            Total contributed (USD)
+            <input
+              value={investedValue}
+              onChange={(e) => setInvestedValue(e.target.value)}
+              inputMode="decimal"
+              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-slate-100 outline-none transition focus:border-emerald-400"
+              placeholder="e.g. 200"
+              disabled={saving}
+            />
+          </label>
+          <p className="text-[11px] leading-relaxed text-slate-400">
+            The real external cash {investor?.name ?? "this investor"} has put
+            in. Bump it when they add new money — reinvesting the proceeds of a
+            sale doesn&apos;t count. Leave blank to auto-sum every holding.
+          </p>
+          {investorError && (
+            <p className="text-sm text-rose-300" role="alert">
+              {investorError}
+            </p>
+          )}
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (saving) return;
+                setShowInvested(false);
+              }}
+              className="cursor-pointer rounded-lg px-4 py-2 text-sm text-slate-300 transition hover:bg-slate-800"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSetInvested(investedValue)}
+              disabled={saving}
+              className="cursor-pointer rounded-xl bg-linear-to-r from-emerald-500 to-teal-500 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-emerald-500/20 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {saving ? "Saving..." : "Save"}
             </button>
