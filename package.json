@@ -6,7 +6,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "status": "node --env-file=.env.local scripts/db-status.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.100.1",

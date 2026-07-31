@@ -84,10 +84,18 @@ function changeArrow(change: number | null) {
   return change > 0 ? "▲" : "▼";
 }
 
-/** Combine duplicate allocations of the same symbol within one investor. */
+/** Combine duplicate OPEN allocations of the same symbol within one investor.
+ * Closed positions pass through untouched — merging a sold position's $0
+ * currentValue (and "closed" status) into a live re-buy of the same ticker
+ * showed a phantom loss, then the inherited status got the row filtered out. */
 function mergeHoldings(holdings: HoldingValue[]): HoldingValue[] {
   const bySymbol = new Map<string, HoldingValue>();
+  const closed: HoldingValue[] = [];
   holdings.forEach((h) => {
+    if (h.status === "closed") {
+      closed.push(h);
+      return;
+    }
     const current = h.currentValue ?? h.amountInvested ?? 0;
     const existing = bySymbol.get(h.symbol);
     if (!existing) {
@@ -101,7 +109,7 @@ function mergeHoldings(holdings: HoldingValue[]): HoldingValue[] {
     existing.change = value - invested;
     existing.changePercent = invested ? (existing.change / invested) * 100 : null;
   });
-  return Array.from(bySymbol.values());
+  return [...Array.from(bySymbol.values()), ...closed];
 }
 
 export default function StocksPage() {
@@ -186,8 +194,8 @@ export default function StocksPage() {
   );
 
   return (
-    <div className="app-backdrop min-h-screen overflow-x-clip text-slate-100">
-      <main className="stagger-children mx-auto flex min-h-screen max-w-2xl flex-col gap-6 px-4 pb-12 pt-4 sm:px-6">
+    <div className="app-backdrop min-h-dvh overflow-x-clip pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-slate-100">
+      <main className="stagger-children mx-auto flex min-h-dvh max-w-2xl flex-col gap-6 px-4 pb-[max(3rem,calc(env(safe-area-inset-bottom)+1.5rem))] pt-[max(1rem,env(safe-area-inset-top))] sm:px-6">
         <header className="glass rounded-2xl px-3 py-3 shadow-xl shadow-black/30 sm:px-5">
           <div className="flex items-center justify-between gap-2 sm:gap-3">
             <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
@@ -259,7 +267,7 @@ export default function StocksPage() {
                       play(filterOpen ? "close" : "open");
                       setFilterOpen((o) => !o);
                     }}
-                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-slate-200 transition hover:-translate-y-0.5 hover:border-cyan-300/40 hover:text-white"
+                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-slate-200 transition hover:-translate-y-0.5 hover:border-cyan-300/40 hover:text-white"
                   >
                     <span className="text-slate-400">Filter:</span>
                     {activeFilterName}
@@ -276,7 +284,7 @@ export default function StocksPage() {
                         className="fixed inset-0 z-10 cursor-default"
                         onClick={() => setFilterOpen(false)}
                       />
-                      <div className="absolute left-0 z-20 mt-1.5 max-h-64 w-44 overflow-auto rounded-xl border border-white/10 bg-slate-900/95 p-1 shadow-xl shadow-black/40 backdrop-blur">
+                      <div className="absolute left-0 z-20 mt-1.5 max-h-64 w-44 overflow-auto overscroll-contain rounded-xl border border-white/10 bg-slate-900/95 p-1 shadow-xl shadow-black/40 backdrop-blur">
                         {[{ name: "All holders", slug: "all" }, ...investorOptions].map(
                           (opt) => (
                             <button
@@ -287,7 +295,7 @@ export default function StocksPage() {
                                 setFilterSlug(opt.slug);
                                 setFilterOpen(false);
                               }}
-                              className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-1.5 text-left text-xs transition ${
+                              className={`flex w-full cursor-pointer items-center justify-between gap-2 rounded-lg px-3 py-2.5 text-left text-xs transition ${
                                 filterSlug === opt.slug
                                   ? "bg-cyan-500/15 text-cyan-100"
                                   : "text-slate-300 hover:bg-white/5 hover:text-white"
@@ -313,7 +321,7 @@ export default function StocksPage() {
                   aria-label={`Sorted ${
                     sortDir === "desc" ? "best to worst" : "worst to best"
                   } — tap to reverse`}
-                  className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-semibold uppercase tracking-wider text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white"
+                  className="inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wider text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white"
                 >
                   {sortDir === "desc" ? "Best first" : "Worst first"}
                   <span aria-hidden className="text-sm leading-none">

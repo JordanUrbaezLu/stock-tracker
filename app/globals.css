@@ -157,45 +157,87 @@ h2 {
   }
 }
 
-/* Glass surface used across cards and panels. The blur + gradient live on a
-   ::before so they clip to the card's border-radius cleanly — applying
-   backdrop-filter directly on a rounded element leaves a faint concentric
-   corner in Chromium. The border stays on the element so per-card border-color
-   utilities (e.g. border-rose-500/30) keep working. */
-.glass {
-  position: relative;
-  isolation: isolate;
-  border: 1px solid rgba(255, 255, 255, 0.09);
-}
-.glass::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  border-radius: inherit;
-  background: linear-gradient(
-    158deg,
-    rgba(255, 255, 255, 0.1),
-    rgba(255, 255, 255, 0.028) 36%,
-    rgba(10, 12, 28, 0.62)
-  );
-  backdrop-filter: blur(16px) saturate(140%);
-  -webkit-backdrop-filter: blur(16px) saturate(140%);
-  /* Lit-from-above: a hairline top highlight + a faint inner edge give the card
-     real depth instead of a flat translucent panel. */
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.015);
-}
+/* Glass surface used across cards and panels.
+   Architecture (each piece is load-bearing):
+   - The PANEL GRADIENT lives on the element as background-image. Element
+     backgrounds fill the border box to the OUTER radius (default
+     background-clip), so the panel reaches under the 1px semi-transparent
+     border with no corner gaps — putting it on an inset:0 pseudo leaves a
+     crescent of un-painted backdrop at every corner (pseudo sits in the
+     padding box but inherits the outer radius) plus an un-backed border ring.
+     background-IMAGE (not shorthand) so per-card background-color utilities
+     (e.g. bg-rose-950/30) compose under the gradient instead of being replaced.
+   - The BLUR stays on a ::before: backdrop-filter directly on a rounded
+     element leaves a faint concentric corner in Chromium. The pseudo must NOT
+     paint anything over the border (negative z-index children still paint
+     ABOVE the root's own border), so it carries no background.
+   - Everything sits in @layer components so Tailwind utilities (border-*,
+     shadow-*, ring-*) genuinely win over these defaults — unlayered author
+     CSS silently beats all utilities in Tailwind v4. */
+@layer components {
+  .glass {
+    position: relative;
+    isolation: isolate;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    background-image: linear-gradient(
+      158deg,
+      rgba(255, 255, 255, 0.1),
+      rgba(255, 255, 255, 0.028) 36%,
+      rgba(10, 12, 28, 0.62)
+    );
+  }
+  .glass::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    border-radius: inherit;
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    /* Lit-from-above: a hairline top highlight + a faint inner edge give the
+       card real depth instead of a flat translucent panel. */
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.12),
+      inset 0 0 0 1px rgba(255, 255, 255, 0.015);
+  }
 
-/* Admin mode: a very slight light-pink wash on glass surfaces so it's subtly
-   clear you're signed in as admin. Unlayered, so it tints the Tailwind shadow
-   utilities on each card. */
-html[data-admin="true"] .glass {
-  border-color: rgba(244, 114, 182, 0.16);
-  box-shadow:
-    0 18px 48px -22px rgba(244, 114, 182, 0.44),
-    0 2px 10px rgba(0, 0, 0, 0.28);
+  /* Admin mode: a light-pink border + wash so it's subtly clear you're signed
+     in. Border/background only — never box-shadow, which would replace every
+     per-card shadow-* and ring-* utility (they all compile to box-shadow). */
+  html[data-admin="true"] .glass {
+    border-color: rgba(244, 114, 182, 0.18);
+    background-image: linear-gradient(
+      158deg,
+      rgba(244, 114, 182, 0.07),
+      rgba(255, 255, 255, 0.028) 36%,
+      rgba(10, 12, 28, 0.62)
+    );
+  }
+
+  /* Touch devices (any-pointer so an iPad with a trackpad still matches):
+     backdrop-filter re-rasterizes every frame during scroll/drag — swap the
+     blur for a near-opaque panel (visually near-identical on these screens).
+     On the element, so it still fills flush under the border. */
+  @media (any-pointer: coarse) {
+    .glass {
+      background-image: linear-gradient(
+        160deg,
+        rgba(23, 29, 52, 0.82),
+        rgba(9, 12, 26, 0.92)
+      );
+    }
+    html[data-admin="true"] .glass {
+      background-image: linear-gradient(
+        160deg,
+        rgba(52, 29, 46, 0.84),
+        rgba(9, 12, 26, 0.92)
+      );
+    }
+    .glass::before {
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
+  }
 }
 
 .gradient-text {
@@ -340,8 +382,18 @@ button.company-logo {
   font: inherit;
   color: inherit;
 }
-.company-logo:hover {
-  transform: scale(1.12);
+/* Hover grow only where hover exists — a raw :hover sticks after a tap on iOS
+   (the logo stays scaled with a bright ring until the next tap elsewhere). */
+@media (hover: hover) {
+  .company-logo:hover {
+    transform: scale(1.12);
+  }
+  .company-logo:hover .company-logo__ring {
+    opacity: 0.75;
+  }
+}
+.company-logo:active {
+  transform: scale(0.94);
 }
 
 /* Wrapper that carries the continuous bob, so the whole chip + ring move
@@ -372,9 +424,6 @@ button.company-logo {
   opacity: 0.4;
   z-index: 0;
   animation: spin-slow 7s linear infinite;
-}
-.company-logo:hover .company-logo__ring {
-  opacity: 0.75;
 }
 
 .company-logo__inner {
@@ -535,22 +584,12 @@ button.company-logo {
   contain-intrinsic-size: auto 480px;
 }
 
-/* Touch devices (phones + iPads, including an iPad with a trackpad — hence
-   any-pointer, not the primary pointer): backdrop-filter blur and continuously
-   spinning blurred logo rings are the heaviest compositing costs — they
-   re-rasterize every frame during scroll/drag/confetti and cause the jank +
-   late audio. Swap the glass blur for a near-opaque panel (visually near-
-   identical on these screens) and freeze the always-animating decorations. */
+/* Touch devices: continuously spinning blurred logo rings and the drifting
+   full-screen aurora are heavy compositing costs — they re-rasterize every
+   frame during scroll/drag/confetti and cause jank + late audio. Freeze the
+   always-animating decorations. (The glass blur's coarse-pointer fallback
+   lives with the .glass rules above.) */
 @media (any-pointer: coarse) {
-  .glass::before {
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
-    background: linear-gradient(
-      160deg,
-      rgba(23, 29, 52, 0.82),
-      rgba(9, 12, 26, 0.92)
-    );
-  }
   .company-logo__ring {
     animation: none;
     filter: blur(3px);

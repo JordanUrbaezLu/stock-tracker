@@ -195,25 +195,30 @@ export function Carousel({
                 onClick={() => embla?.scrollPrev()}
                 disabled={!canPrev}
                 aria-label="Previous"
-                className="hidden h-8 w-8 cursor-pointer place-items-center rounded-full border border-white/10 bg-white/5 text-cyan-200 transition hover:border-cyan-300/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-30 md:grid"
+                className="hidden h-11 w-11 cursor-pointer place-items-center rounded-full border border-white/10 bg-white/5 text-cyan-200 transition hover:border-cyan-300/60 hover:text-white active:scale-95 disabled:cursor-not-allowed disabled:opacity-30 md:grid"
               >
                 ◀
               </button>
             )}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center">
+              {/* Each dot stays visually tiny but lives inside a 44px-tall hit
+                  box — an 8px dot is untappable on a phone. */}
               {slides.map((_, i) => (
                 <button
                   key={i}
                   type="button"
                   onClick={() => embla?.scrollTo(i)}
                   aria-label={`Go to ${labels?.[i] ?? `slide ${i + 1}`}`}
-                  title={labels?.[i]}
-                  className={`h-2 rounded-full transition-all ${
-                    i === selected
-                      ? "w-7 bg-linear-to-r from-cyan-400 to-fuchsia-400"
-                      : "w-2 bg-slate-600 hover:bg-slate-400"
-                  }`}
-                />
+                  className="flex h-11 min-w-5 cursor-pointer items-center justify-center px-1"
+                >
+                  <span
+                    className={`h-2 rounded-full transition-all ${
+                      i === selected
+                        ? "w-7 bg-linear-to-r from-cyan-400 to-fuchsia-400"
+                        : "w-2 bg-slate-600 hover:bg-slate-400"
+                    }`}
+                  />
+                </button>
               ))}
             </div>
             {arrows && (
@@ -222,7 +227,7 @@ export function Carousel({
                 onClick={() => embla?.scrollNext()}
                 disabled={!canNext}
                 aria-label="Next"
-                className="hidden h-8 w-8 cursor-pointer place-items-center rounded-full border border-white/10 bg-white/5 text-cyan-200 transition hover:border-cyan-300/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-30 md:grid"
+                className="hidden h-11 w-11 cursor-pointer place-items-center rounded-full border border-white/10 bg-white/5 text-cyan-200 transition hover:border-cyan-300/60 hover:text-white active:scale-95 disabled:cursor-not-allowed disabled:opacity-30 md:grid"
               >
                 ▶
               </button>

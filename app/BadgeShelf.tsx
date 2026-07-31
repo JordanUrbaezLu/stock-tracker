@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "motion/react";
 import { useSound } from "./SoundContext";
 import { celebrate } from "./confetti";
+import { lockBodyScroll, unlockBodyScroll } from "./scrollLock";
 import {
   getBadges,
   badgeToneClasses,
@@ -108,26 +109,27 @@ export function Badges({
       if (e.key === "Escape") close();
     };
     window.addEventListener("keydown", onKey);
-    const prevOverflow = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
+    lockBodyScroll();
     return () => {
       window.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prevOverflow;
+      unlockBodyScroll();
     };
   }, [selected, close]);
 
   if (badges.length === 0) return null;
 
   return (
-    // Outer wrapper carries the NEW badge so it can sit on the border, while the
-    // card keeps overflow-hidden (which is what actually clips the background +
-    // blur to the rounded corners — the badge would otherwise be clipped).
+    // Outer wrapper carries the NEW badge so it can sit on the card's border,
+    // above the section's rounded edge.
     <div className="relative">
       <span className="absolute -top-2 right-5 z-20 inline-flex items-center rounded-full bg-linear-to-r from-rose-500 to-orange-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white shadow-md shadow-rose-500/40 ring-1 ring-white/20">
         New
       </span>
-      <section className="glass relative overflow-hidden rounded-3xl p-5 shadow-2xl shadow-black/30 sm:p-6">
-        <div className="pointer-events-none absolute -right-16 -top-16 h-44 w-44 rounded-full bg-amber-400/10 blur-3xl" />
+      <section className="glass relative rounded-3xl p-5 shadow-2xl shadow-black/30 sm:p-6">
+        {/* Decor clipping lives on this wrapper so the card itself can stay unclipped. */}
+        <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]">
+          <div className="pointer-events-none absolute -right-16 -top-16 h-44 w-44 rounded-full bg-amber-400/10 blur-3xl" />
+        </div>
       <div className="relative mb-3 flex items-center justify-between gap-2">
         <h2 className="flex items-center gap-2 text-lg font-semibold text-white">
           <span aria-hidden>🎖️</span> Achievements
@@ -148,25 +150,31 @@ export function Badges({
             whileHover={{ y: -2 }}
             whileTap={{ scale: 0.94 }}
             aria-label={`${b.label}${b.earned ? "" : " (locked)"} — ${b.description}`}
-            className={`relative flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 ring-1 transition ${
-              b.earned
-                ? `bg-linear-to-br ${badgeToneClasses(b.tone)} hover:brightness-110`
-                : "bg-white/4 text-slate-500 ring-white/10 hover:bg-white/7"
-            }`}
+            // Button is a taller invisible hit area (≥44px); the pill inside
+            // keeps its compact visual size.
+            className="grid min-h-11 cursor-pointer place-items-center"
           >
             <span
-              className="text-base leading-none"
-              aria-hidden
-              style={b.earned ? undefined : { filter: "grayscale(1)", opacity: 0.55 }}
+              className={`relative flex items-center gap-1.5 rounded-full px-3 py-1.5 ring-1 transition ${
+                b.earned
+                  ? `bg-linear-to-br ${badgeToneClasses(b.tone)} hover:brightness-110`
+                  : "bg-white/4 text-slate-500 ring-white/10 hover:bg-white/7"
+              }`}
             >
-              {b.emoji}
-            </span>
-            <span className="text-xs font-semibold">{b.label}</span>
-            {b.earned && newIds.has(b.id) && (
-              <span className="absolute -right-1.5 -top-1.5 animate-pulse rounded-full bg-rose-500 px-1.5 py-px text-[8px] font-bold uppercase tracking-wider text-white shadow-sm shadow-black/40">
-                New
+              <span
+                className="text-base leading-none"
+                aria-hidden
+                style={b.earned ? undefined : { filter: "grayscale(1)", opacity: 0.55 }}
+              >
+                {b.emoji}
               </span>
-            )}
+              <span className="text-xs font-semibold">{b.label}</span>
+              {b.earned && newIds.has(b.id) && (
+                <span className="absolute -right-1.5 -top-1.5 animate-pulse rounded-full bg-rose-500 px-1.5 py-px text-[8px] font-bold uppercase tracking-wider text-white shadow-sm shadow-black/40">
+                  New
+                </span>
+              )}
+            </span>
           </motion.button>
         ))}
       </div>
@@ -177,7 +185,7 @@ export function Badges({
           <AnimatePresence>
             {selected && (
               <motion.div
-                className="fixed inset-0 z-50 flex items-center justify-center p-6"
+                className="fixed inset-0 z-50 flex items-start justify-center px-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-6 sm:items-center"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
@@ -198,7 +206,7 @@ export function Badges({
               transition={{ type: "spring", stiffness: 300, damping: 24 }}
               // Solid (opaque) card — only the overlay behind it is transparent.
               style={{ background: "linear-gradient(160deg, #141a30, #0a0e1d)" }}
-              className="relative z-10 w-full max-w-xs rounded-3xl border border-white/10 p-6 text-center shadow-2xl shadow-black/50"
+              className="relative z-10 max-h-[85dvh] w-full max-w-xs overflow-y-auto overscroll-contain rounded-3xl border border-white/10 p-6 text-center shadow-2xl shadow-black/50"
             >
               <div
                 className={`mx-auto grid h-16 w-16 place-items-center rounded-2xl text-3xl ring-1 ${

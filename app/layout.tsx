@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono, Space_Grotesk } from "next/font/google";
 import "./globals.css";
 import { AdminProvider } from "./AdminContext";
@@ -21,6 +21,16 @@ const spaceGrotesk = Space_Grotesk({
   subsets: ["latin"],
   weight: ["400", "500", "600", "700"],
 });
+
+// viewport-fit=cover lets the app draw edge-to-edge under the notch/home
+// indicator (required for env(safe-area-inset-*) to be non-zero on iOS —
+// pages pad with it so content clears the Dynamic Island and home bar).
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+  themeColor: "#05060f",
+};
 
 export const metadata: Metadata = {
   title: "Stock Tracker",

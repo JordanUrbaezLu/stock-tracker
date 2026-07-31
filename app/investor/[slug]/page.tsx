@@ -11,6 +11,7 @@ import { BackButton } from "../../BackButton";
 import { Badges } from "../../BadgeShelf";
 import { useAdmin } from "../../AdminContext";
 import { useSound } from "../../SoundContext";
+import { lockBodyScroll, unlockBodyScroll } from "../../scrollLock";
 import { Sparkline } from "../../Sparkline";
 import { initials, avatarGradient } from "../../avatar";
 import { isNewInvestor, investorSince } from "../../investorMeta";
@@ -78,11 +79,19 @@ function Modal({
   children: ReactNode;
   onClose: () => void;
 }) {
+  // Pin the page while the modal is open — iOS Safari keeps touch-scrolling
+  // the body behind a fixed overlay otherwise.
+  useEffect(() => {
+    if (!open) return;
+    lockBodyScroll();
+    return () => unlockBodyScroll();
+  }, [open]);
+
   return (
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 px-4 pt-[max(1.5rem,env(safe-area-inset-top))] pb-4 backdrop-blur-sm sm:items-center"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -90,25 +99,28 @@ function Modal({
           onClick={onClose}
         >
           <motion.div
-            className="glass w-full max-w-lg rounded-3xl p-6 shadow-2xl shadow-cyan-500/10"
+            // Scrolling lives on an inner div, not the glass element — the
+            // glass ::before (blur + top highlight) is positioned against the
+            // scrollport and would scroll away with the content otherwise.
+            className="glass flex max-h-[85dvh] w-full max-w-lg flex-col rounded-3xl p-6 shadow-2xl shadow-cyan-500/10"
             initial={{ opacity: 0, scale: 0.92, y: 24 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 12 }}
             transition={{ type: "spring", stiffness: 320, damping: 26 }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-4 flex items-center justify-between">
+            <div className="mb-4 flex shrink-0 items-center justify-between">
               <h3 className="text-lg font-semibold text-white">{title}</h3>
               <button
                 type="button"
                 onClick={onClose}
-                className="grid h-8 w-8 cursor-pointer place-items-center rounded-full text-slate-300 transition hover:bg-white/10 hover:text-white"
+                className="grid h-11 w-11 cursor-pointer place-items-center rounded-full text-slate-300 transition hover:bg-white/10 hover:text-white"
                 aria-label="Close"
               >
                 ✕
               </button>
             </div>
-            {children}
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</div>
           </motion.div>
         </motion.div>
       )}
@@ -585,15 +597,17 @@ export default function InvestorDetail() {
 
   return (
     <div
-      className="app-backdrop min-h-screen text-slate-100"
+      className="app-backdrop min-h-dvh pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-slate-100"
       data-mood={investor ? (originalGain >= 0 ? "up" : "down") : undefined}
     >
-      <main className="stagger-children mx-auto flex min-h-screen max-w-3xl flex-col gap-4 px-4 py-6 sm:px-6 sm:py-8">
-        <header className="glass relative flex flex-col gap-4 overflow-hidden rounded-3xl p-5 shadow-2xl shadow-black/30 sm:p-6">
+      <main className="stagger-children mx-auto flex min-h-dvh max-w-3xl flex-col gap-4 px-4 pt-[max(1.5rem,env(safe-area-inset-top))] pb-[max(1.5rem,calc(env(safe-area-inset-bottom)+1.5rem))] sm:px-6 sm:pt-[max(2rem,env(safe-area-inset-top))] sm:pb-[max(2rem,calc(env(safe-area-inset-bottom)+1.5rem))]">
+        <header className="glass relative flex flex-col gap-4 rounded-3xl p-5 shadow-2xl shadow-black/30 sm:p-6">
           <div
             aria-hidden
-            className="pointer-events-none absolute -right-24 -top-28 h-64 w-64 rounded-full bg-cyan-500/10 blur-3xl"
-          />
+            className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
+          >
+            <div className="absolute -right-24 -top-28 h-64 w-64 rounded-full bg-cyan-500/10 blur-3xl" />
+          </div>
           <div className="relative flex items-center justify-between gap-4">
             <BackButton className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white" />
             <div className="flex items-center gap-3 text-xs text-slate-400">
@@ -691,7 +705,6 @@ export default function InvestorDetail() {
                       className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold ring-1 ${tonePill(
                         investor.alphaSpy,
                       )}`}
-                      title="Return vs the S&P 500 over the same period"
                     >
                       {investor.alphaSpy >= 0 ? "▲" : "▼"}{" "}
                       {`${investor.alphaSpy >= 0 ? "+" : "−"}${Math.abs(
@@ -700,6 +713,11 @@ export default function InvestorDetail() {
                     </span>
                   )}
                 </div>
+                {typeof investor.alphaSpy === "number" && (
+                  <p className="mt-1 text-[10px] text-slate-500">
+                    vs S&amp;P 500 · same period
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-2.5">
@@ -784,8 +802,8 @@ export default function InvestorDetail() {
           investor &&
           investor.valueHistory &&
           investor.valueHistory.length > 1 && (
-            <section className="glass relative overflow-hidden rounded-3xl p-4 shadow-2xl shadow-black/30 sm:p-5">
-              <div className="rounded-2xl border border-white/5 bg-white/2 p-3">
+            <section className="glass relative rounded-3xl p-4 shadow-2xl shadow-black/30 sm:p-5">
+              <div className="rounded-xl border border-white/5 bg-white/2 p-3">
                 <div className="mb-2 flex items-center justify-between gap-2">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
                     Portfolio value · 6-month trend
@@ -841,30 +859,37 @@ export default function InvestorDetail() {
         )}
 
         {!loading && !error && investor && (
-          <section className="glass cv-auto overflow-hidden rounded-3xl p-5 shadow-2xl shadow-black/30 sm:p-6">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-white">Holdings</h2>
-                {isAdmin && (
-                  <button
-                    type="button"
-                    onClick={openAddModal}
-                    className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-cyan-500/40 bg-white/5 px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/10 hover:text-white"
-                  >
-                    <span aria-hidden>＋</span> Add investment
-                  </button>
-                )}
+          // cv-auto lives on a plain wrapper (not the glass element) so a fast
+          // scroll can never paint the card's border without its background.
+          // The negative-margin/padding pair keeps the card's drop shadow
+          // inside the wrapper's padding box — content-visibility's paint
+          // containment would clip it at the wrapper edge otherwise.
+          <div className="cv-auto -mx-4 -mb-16 px-4 pb-16">
+            <section className="glass rounded-3xl p-5 shadow-2xl shadow-black/30 sm:p-6">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold text-white">Holdings</h2>
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      onClick={openAddModal}
+                      className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-cyan-500/40 bg-white/5 px-3 py-2 text-xs font-semibold text-cyan-100 transition hover:border-cyan-300 hover:bg-cyan-500/10 hover:text-white"
+                    >
+                      <span aria-hidden>＋</span> Add investment
+                    </button>
+                  )}
+                </div>
+                <HoldingsList
+                  holdings={investor.holdings}
+                  isAdmin={isAdmin}
+                  onEdit={(holding) => openEditModal(holding)}
+                  onDelete={(holding) => handleDeleteHolding(holding)}
+                  onSell={(holding) => handleSell(holding)}
+                  onReopen={(holding) => handleReopen(holding)}
+                />
               </div>
-              <HoldingsList
-                holdings={investor.holdings}
-                isAdmin={isAdmin}
-                onEdit={(holding) => openEditModal(holding)}
-                onDelete={(holding) => handleDeleteHolding(holding)}
-                onSell={(holding) => handleSell(holding)}
-                onReopen={(holding) => handleReopen(holding)}
-              />
-            </div>
-          </section>
+            </section>
+          </div>
         )}
 
         {!loading && !error && !investor && (
@@ -890,7 +915,7 @@ export default function InvestorDetail() {
             <input
               value={formSymbol}
               onChange={(e) => setFormSymbol(e.target.value.toUpperCase())}
-              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-slate-100 outline-none transition focus:border-cyan-400"
+              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-base text-slate-100 outline-none transition focus:border-cyan-400"
               placeholder="AAPL"
               disabled={saving}
             />
@@ -903,7 +928,7 @@ export default function InvestorDetail() {
               type="number"
               min="0"
               step="0.01"
-              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-slate-100 outline-none transition focus:border-cyan-400"
+              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-base text-slate-100 outline-none transition focus:border-cyan-400"
               placeholder="100"
               disabled={saving}
             />
@@ -916,7 +941,7 @@ export default function InvestorDetail() {
               type="number"
               min="0"
               step="0.0001"
-              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-slate-100 outline-none transition focus:border-cyan-400"
+              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-base text-slate-100 outline-none transition focus:border-cyan-400"
               placeholder="0.1234"
               disabled={saving}
             />
@@ -927,7 +952,7 @@ export default function InvestorDetail() {
               value={formDate}
               onChange={(e) => setFormDate(e.target.value)}
               type="date"
-              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-slate-100 outline-none transition focus:border-cyan-400"
+              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-base text-slate-100 outline-none transition focus:border-cyan-400"
               disabled={saving}
             />
           </label>
@@ -976,7 +1001,7 @@ export default function InvestorDetail() {
             <input
               value={renameValue}
               onChange={(e) => setRenameValue(e.target.value)}
-              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-slate-100 outline-none transition focus:border-cyan-400"
+              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-base text-slate-100 outline-none transition focus:border-cyan-400"
               placeholder="Investor name"
               disabled={saving}
             />
@@ -1025,7 +1050,7 @@ export default function InvestorDetail() {
               value={investedValue}
               onChange={(e) => setInvestedValue(e.target.value)}
               inputMode="decimal"
-              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-slate-100 outline-none transition focus:border-emerald-400"
+              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-base text-slate-100 outline-none transition focus:border-emerald-400"
               placeholder="e.g. 200"
               disabled={saving}
             />
@@ -1127,7 +1152,7 @@ export default function InvestorDetail() {
               type="number"
               min="0"
               step="0.01"
-              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-slate-100 outline-none transition focus:border-amber-400"
+              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-base text-slate-100 outline-none transition focus:border-amber-400"
               placeholder="0.00"
               disabled={saving}
             />
@@ -1138,7 +1163,7 @@ export default function InvestorDetail() {
               value={sellDate}
               onChange={(e) => setSellDate(e.target.value)}
               type="date"
-              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-slate-100 outline-none transition focus:border-amber-400"
+              className="mt-1 h-11 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-base text-slate-100 outline-none transition focus:border-amber-400"
               disabled={saving}
             />
           </label>
