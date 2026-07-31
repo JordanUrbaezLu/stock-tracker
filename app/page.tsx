@@ -175,9 +175,18 @@ function toneClasses(change: number | null) {
 }
 
 function mergeHoldings(holdings: HoldingValue[]): HoldingValue[] {
+  // Merge duplicate OPEN buys of the same symbol into one row. Closed positions
+  // pass through untouched — blending a sold position's $0 currentValue and
+  // "closed" status into a live re-buy of the same ticker showed a phantom loss
+  // and hid the new position.
   const bySymbol = new Map<string, HoldingValue>();
+  const closed: HoldingValue[] = [];
 
   holdings.forEach((holding) => {
+    if (holding.status === "closed") {
+      closed.push(holding);
+      return;
+    }
     const key = holding.symbol;
     const current = holding.currentValue ?? holding.amountInvested ?? 0;
     const shares = holding.shares ?? 0;
@@ -208,7 +217,7 @@ function mergeHoldings(holdings: HoldingValue[]): HoldingValue[] {
       : null;
   });
 
-  return Array.from(bySymbol.values()).map((h) => {
+  const merged = Array.from(bySymbol.values()).map((h) => {
     if (h.change == null) {
       const current = h.currentValue ?? h.amountInvested ?? 0;
       const change = current - (h.amountInvested ?? 0);
@@ -223,6 +232,7 @@ function mergeHoldings(holdings: HoldingValue[]): HoldingValue[] {
     }
     return h;
   });
+  return [...merged, ...closed];
 }
 
 function returnPct(inv: InvestorValue) {

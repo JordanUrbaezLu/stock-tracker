@@ -84,10 +84,18 @@ function changeArrow(change: number | null) {
   return change > 0 ? "▲" : "▼";
 }
 
-/** Combine duplicate allocations of the same symbol within one investor. */
+/** Combine duplicate OPEN allocations of the same symbol within one investor.
+ * Closed positions pass through untouched — merging a sold position's $0
+ * currentValue (and "closed" status) into a live re-buy of the same ticker
+ * showed a phantom loss, then the inherited status got the row filtered out. */
 function mergeHoldings(holdings: HoldingValue[]): HoldingValue[] {
   const bySymbol = new Map<string, HoldingValue>();
+  const closed: HoldingValue[] = [];
   holdings.forEach((h) => {
+    if (h.status === "closed") {
+      closed.push(h);
+      return;
+    }
     const current = h.currentValue ?? h.amountInvested ?? 0;
     const existing = bySymbol.get(h.symbol);
     if (!existing) {
@@ -101,7 +109,7 @@ function mergeHoldings(holdings: HoldingValue[]): HoldingValue[] {
     existing.change = value - invested;
     existing.changePercent = invested ? (existing.change / invested) * 100 : null;
   });
-  return Array.from(bySymbol.values());
+  return [...Array.from(bySymbol.values()), ...closed];
 }
 
 export default function StocksPage() {
