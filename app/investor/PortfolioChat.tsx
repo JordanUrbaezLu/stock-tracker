@@ -130,11 +130,13 @@ export function PortfolioChat({
   };
 
   return (
-    <section className="glass relative overflow-hidden rounded-3xl p-5 shadow-2xl shadow-fuchsia-500/10 ring-1 ring-fuchsia-400/10 sm:p-6">
+    <section className="glass relative rounded-3xl border-fuchsia-400/15 p-5 shadow-2xl shadow-fuchsia-500/10 sm:p-6">
       <div
         aria-hidden
-        className="pointer-events-none absolute -left-16 -top-16 h-44 w-44 rounded-full bg-fuchsia-500/15 blur-3xl"
-      />
+        className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
+      >
+        <div className="absolute -left-16 -top-16 h-44 w-44 rounded-full bg-fuchsia-500/15 blur-3xl" />
+      </div>
       <div className="relative flex items-center gap-3">
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-linear-to-br from-cyan-400 via-fuchsia-500 to-indigo-500 text-lg shadow-lg shadow-black/30">
           🤖
@@ -158,7 +160,7 @@ export function PortfolioChat({
       {qa.length > 0 && (
         <div
           ref={threadRef}
-          className="relative mt-4 max-h-80 space-y-3 overflow-y-auto px-0.5 pb-0.5 pt-1.5"
+          className="relative mt-4 max-h-80 space-y-3 overflow-y-auto overscroll-contain px-0.5 pb-0.5 pt-1.5"
         >
           {qa.map((item, i) => {
             const isTyping = !!typing && typing.index === i;
@@ -234,13 +236,13 @@ export function PortfolioChat({
           onChange={(e) => setQ(e.target.value)}
           placeholder="Ask the AI about your holdings, returns, or the group…"
           maxLength={300}
-          className="min-w-0 flex-1 rounded-full border border-white/10 bg-white/5 px-4 py-2.5 text-sm text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300/50"
+          className="h-11 min-w-0 flex-1 rounded-full border border-white/10 bg-white/5 px-4 text-base text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300/50"
         />
         <motion.button
           type="submit"
           disabled={loading || !q.trim()}
           whileTap={{ scale: 0.95 }}
-          className="shrink-0 cursor-pointer rounded-full bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+          className="h-11 shrink-0 cursor-pointer rounded-full bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Ask
         </motion.button>

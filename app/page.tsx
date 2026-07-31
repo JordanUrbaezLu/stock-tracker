@@ -18,6 +18,10 @@ import { computeBadges, badgeToneClasses } from "./badges";
 import { isNewInvestor } from "./investorMeta";
 import { RichText } from "./RichText";
 import { fetchPortfolio, getCachedPortfolio } from "./portfolioCache";
+import { DailyPulse } from "./DailyPulse";
+import { InstallNudge } from "./InstallNudge";
+import { GUEST, getViewer } from "./checkin";
+import { lockBodyScroll, unlockBodyScroll } from "./scrollLock";
 
 const MotionLink = motion.create(Link);
 
@@ -98,11 +102,22 @@ function Modal({
   children: ReactNode;
   onClose: () => void;
 }) {
+  // iOS-safe scroll lock: overflow:hidden on body is ignored by touch
+  // scrolling, so the page would pan behind the overlay without this.
+  useEffect(() => {
+    if (!open) return;
+    lockBodyScroll();
+    return () => unlockBodyScroll();
+  }, [open]);
+
   return (
     <AnimatePresence>
       {open && (
         <motion.div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
+          // Top-anchored on phones so the card stays visible above the iOS
+          // keyboard; centered from sm up. The card caps at 85dvh and scrolls
+          // internally for tall forms.
+          className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 px-4 pt-[max(1.5rem,env(safe-area-inset-top))] pb-4 backdrop-blur-sm sm:items-center"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -110,25 +125,28 @@ function Modal({
           onClick={onClose}
         >
           <motion.div
-            className="glass w-full max-w-md rounded-3xl p-6 shadow-2xl shadow-cyan-500/10"
+            // Scrolling lives on an inner div, not the glass element — the
+            // glass ::before (blur + top highlight) is positioned against the
+            // scrollport and would scroll away with the content otherwise.
+            className="glass flex max-h-[85dvh] w-full max-w-md flex-col rounded-3xl p-6 shadow-2xl shadow-cyan-500/10"
             initial={{ opacity: 0, scale: 0.92, y: 24 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 12 }}
             transition={{ type: "spring", stiffness: 320, damping: 26 }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-4 flex items-center justify-between">
+            <div className="mb-4 flex shrink-0 items-center justify-between">
               <h3 className="text-lg font-semibold text-white">{title}</h3>
               <button
                 type="button"
                 onClick={onClose}
-                className="grid h-8 w-8 cursor-pointer place-items-center rounded-full text-slate-300 transition hover:bg-white/10 hover:text-white"
+                className="grid h-11 w-11 cursor-pointer place-items-center rounded-full text-slate-300 transition hover:bg-white/10 hover:text-white"
                 aria-label="Close"
               >
                 ✕
               </button>
             </div>
-            {children}
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</div>
           </motion.div>
         </motion.div>
       )}
@@ -175,9 +193,18 @@ function toneClasses(change: number | null) {
 }
 
 function mergeHoldings(holdings: HoldingValue[]): HoldingValue[] {
+  // Merge duplicate OPEN buys of the same symbol into one row. Closed positions
+  // pass through untouched — blending a sold position's $0 currentValue and
+  // "closed" status into a live re-buy of the same ticker showed a phantom loss
+  // and hid the new position.
   const bySymbol = new Map<string, HoldingValue>();
+  const closed: HoldingValue[] = [];
 
   holdings.forEach((holding) => {
+    if (holding.status === "closed") {
+      closed.push(holding);
+      return;
+    }
     const key = holding.symbol;
     const current = holding.currentValue ?? holding.amountInvested ?? 0;
     const shares = holding.shares ?? 0;
@@ -208,7 +235,7 @@ function mergeHoldings(holdings: HoldingValue[]): HoldingValue[] {
       : null;
   });
 
-  return Array.from(bySymbol.values()).map((h) => {
+  const merged = Array.from(bySymbol.values()).map((h) => {
     if (h.change == null) {
       const current = h.currentValue ?? h.amountInvested ?? 0;
       const change = current - (h.amountInvested ?? 0);
@@ -223,6 +250,7 @@ function mergeHoldings(holdings: HoldingValue[]): HoldingValue[] {
     }
     return h;
   });
+  return [...merged, ...closed];
 }
 
 function returnPct(inv: InvestorValue) {
@@ -396,8 +424,17 @@ function InvestorCard({
   // Personalized AI encouragement. Refetched per investor (and on each reload,
   // since `investor` is recreated when the portfolio refreshes). The endpoint
   // always resolves to a message — real AI when ANTHROPIC_API_KEY is set, a
-  // warm templated line otherwise — so every card gets one.
-  const [insight, setInsight] = useState<string | null>(null);
+  // warm templated line otherwise — so every card gets one. Seeded from the
+  // last real AI line this device saw, so the card never sits blank while the
+  // fresh one loads (or when the API is briefly unavailable).
+  const [insight, setInsight] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null;
+    try {
+      return window.localStorage.getItem(`pulse:insight:${investor.slug}`);
+    } catch {
+      return null;
+    }
+  });
   useEffect(() => {
     const controller = new AbortController();
     const merged = mergeHoldings(investor.holdings || []);
@@ -429,8 +466,15 @@ function InvestorCard({
       .then((r) => (r.ok ? r.json() : null))
       .then((j: { message?: string; source?: string } | null) => {
         // Only surface a real AI (or cached AI) line — never the templated
-        // fallback. Until then the card shows nothing.
-        if (j?.message && j.source !== "fallback") setInsight(j.message);
+        // fallback. Until then the card shows the last remembered line.
+        if (j?.message && j.source !== "fallback") {
+          setInsight(j.message);
+          try {
+            window.localStorage.setItem(`pulse:insight:${investor.slug}`, j.message);
+          } catch {
+            // Fine — just no stale-while-revalidate next visit.
+          }
+        }
       })
       .catch(() => null);
     return () => controller.abort();
@@ -444,11 +488,17 @@ function InvestorCard({
       className="group block h-full focus:outline-none"
       aria-label={`Open ${investor.name}'s portfolio`}
     >
-      <div className="glass relative flex h-full flex-col gap-5 overflow-hidden rounded-[1.75rem] p-5 shadow-2xl shadow-black/40 sm:p-6">
+      {/* No overflow-hidden on the glass root: it clipped badge tooltips and
+          forced the card's drop shadow through the carousel clip. The blur
+          ball gets its own clipped wrapper; the shadow is tight enough to fit
+          the carousel's slide gutter without a hard cutoff line. */}
+      <div className="glass relative flex h-full flex-col gap-5 rounded-[1.75rem] p-5 shadow-lg shadow-black/35 sm:p-6">
         <div
           aria-hidden
-          className="pointer-events-none absolute -right-16 -top-20 h-48 w-48 rounded-full bg-cyan-500/10 blur-3xl"
-        />
+          className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
+        >
+          <div className="absolute -right-16 -top-20 h-48 w-48 rounded-full bg-cyan-500/10 blur-3xl" />
+        </div>
         <div className="relative flex items-start justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2.5">
@@ -497,9 +547,11 @@ function InvestorCard({
               </p>
             )}
             {badges.length > 0 && (
-              <div className="mt-2 flex flex-wrap items-center gap-1">
+              <div className="mt-1 flex flex-wrap items-center gap-0.5">
                 {badges.slice(0, 4).map((b) => (
                   <span key={b.id} className="relative">
+                    {/* 40px hit box around the 24px badge — a missed tap here
+                        used to navigate the whole card away. */}
                     <button
                       type="button"
                       aria-label={b.label}
@@ -511,13 +563,17 @@ function InvestorCard({
                         play("tap");
                         setTipBadge((cur) => (cur === b.id ? null : b.id));
                       }}
-                      className={`grid h-6 w-6 cursor-pointer place-items-center rounded-full bg-linear-to-br ${badgeToneClasses(
-                        b.tone,
-                      )} text-[11px] ring-1 transition ${
-                        tipBadge === b.id ? "ring-2 ring-white/60" : ""
-                      }`}
+                      className="grid h-10 w-8 cursor-pointer place-items-center"
                     >
-                      {b.emoji}
+                      <span
+                        className={`grid h-6 w-6 place-items-center rounded-full bg-linear-to-br ${badgeToneClasses(
+                          b.tone,
+                        )} text-[11px] ring-1 transition ${
+                          tipBadge === b.id ? "ring-2 ring-white/60" : ""
+                        }`}
+                      >
+                        {b.emoji}
+                      </span>
                     </button>
                     {tipBadge === b.id && (
                       <motion.span
@@ -615,7 +671,9 @@ function InvestorCard({
             </div>
           ) : (
             // Capped to ~3 rows; scroll within the card for the rest.
-            <div className="max-h-42 space-y-2 overflow-y-auto pr-1">
+            // overscroll-contain: without it, hitting the list's edge mid-swipe
+            // flings the whole page on iOS.
+            <div className="max-h-42 space-y-2 overflow-y-auto overscroll-contain pr-1">
               {sortedHoldings.map((holding, idx) => (
                 <HoldingRow
                   key={`${holding.symbol}-${idx}`}
@@ -703,7 +761,7 @@ function LeaderboardSlide({
         <span className="text-[10px] text-slate-500">{board.note}</span>
       </div>
       {/* Top 3 fit with the 4th peeking; scroll within the slide for the rest. */}
-      <div className="mt-2.5 max-h-40 space-y-1 overflow-y-auto pr-1">
+      <div className="mt-2.5 max-h-40 space-y-1 overflow-y-auto overscroll-contain pr-1">
         {ranked.map((inv, idx) => {
           const barPct = Math.max(
             4,
@@ -838,13 +896,15 @@ function TopHoldingsSlide({ investors }: { investors: InvestorValue[] }) {
                   >
                     {rankLabel(idx)}
                   </span>
+                  {/* No linkToLookup at this size: a 26px button inside a
+                      navigating row makes two destinations 0px apart — the
+                      row's own link wins. */}
                   <CompanyLogo
                     symbol={row.symbol}
                     name={row.name}
                     logo={row.logo}
                     size={26}
                     delay={idx * 70}
-                    linkToLookup
                   />
                         <div className="min-w-0 max-w-22 sm:max-w-28">
                           <p className="truncate text-sm font-semibold text-white">
@@ -1001,11 +1061,13 @@ function HeroCarousel({
   }
 
   return (
-    <div className="glass relative overflow-hidden rounded-3xl p-3.5 shadow-2xl shadow-black/30 sm:p-4">
+    <div className="glass relative rounded-3xl p-3.5 shadow-xl shadow-black/30 sm:p-4">
       <div
         aria-hidden
-        className="pointer-events-none absolute -right-20 -top-24 h-56 w-56 rounded-full bg-fuchsia-500/10 blur-3xl"
-      />
+        className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
+      >
+        <div className="absolute -right-20 -top-24 h-56 w-56 rounded-full bg-fuchsia-500/10 blur-3xl" />
+      </div>
       <Carousel
         slides={slides}
         labels={labels}
@@ -1049,6 +1111,21 @@ export default function Home() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const celebrated = useRef(false);
+  // Which investor this device belongs to (picked in the Daily Pulse card) —
+  // used to pin their card first instead of the anonymous shuffle.
+  const [viewerSlug, setViewerSlug] = useState<string | null>(() => getViewer());
+  // iPad and up: cards render as a two-up grid instead of one-at-a-time
+  // swiping — the extra width finally does something. Safe to read matchMedia
+  // in the initializer: the cards only render after a client-side fetch.
+  const [isWide, setIsWide] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 768px)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(min-width: 768px)");
+    const onChange = () => setIsWide(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
 
   const loadPortfolios = useCallback(async (force = false) => {
     setError(null);
@@ -1154,9 +1231,11 @@ export default function Home() {
       .sort((a, b) => Math.abs(b.changePercent ?? 0) - Math.abs(a.changePercent ?? 0));
   })();
 
-  // Shuffle the investor CARDS on each page load so no one is permanently first.
-  // Keyed by the set of slugs: stable across re-renders within a mount (no
-  // reshuffle on data refetch), re-randomized on a fresh mount or roster change.
+  // Shuffle the investor CARDS on each page load so no one is permanently
+  // first — except the device's own investor, who always leads once the
+  // viewer has picked themselves in the Daily Pulse card. Keyed by the set of
+  // slugs: stable across re-renders within a mount (no reshuffle on data
+  // refetch), re-randomized on a fresh mount or roster change.
   const cardKey = investors.map((i) => i.slug).join(",");
   const cardInvestors = useMemo(() => {
     const arr = [...investors];
@@ -1164,9 +1243,13 @@ export default function Home() {
       const j = Math.floor(Math.random() * (i + 1));
       [arr[i], arr[j]] = [arr[j], arr[i]];
     }
+    if (viewerSlug && viewerSlug !== GUEST) {
+      const mine = arr.findIndex((i) => i.slug === viewerSlug);
+      if (mine > 0) arr.unshift(arr.splice(mine, 1)[0]);
+    }
     return arr;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cardKey]);
+  }, [cardKey, viewerSlug]);
 
   const groupCurrent = investors.reduce((s, i) => s + i.currentValue, 0);
   const groupOriginal = investors.reduce(
@@ -1209,10 +1292,13 @@ export default function Home() {
 
   return (
     <div
-      className="app-backdrop min-h-screen overflow-x-clip text-slate-100"
+      className="app-backdrop min-h-dvh overflow-x-clip pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-slate-100"
       data-mood={count > 0 ? (groupGain >= 0 ? "up" : "down") : undefined}
     >
-      <main className="stagger-children mx-auto flex min-h-screen max-w-3xl flex-col gap-5 px-4 pb-10 pt-3 sm:px-6 sm:pt-4">
+      {/* Safe-area max() paddings: clear the Dynamic Island and home indicator
+          in the installed app; fall back to the plain gutters in Safari. Wider
+          than 3xl only from lg so the iPad grid gets room. */}
+      <main className="stagger-children mx-auto flex min-h-dvh max-w-3xl flex-col gap-5 px-4 pb-[max(2.5rem,calc(env(safe-area-inset-bottom)+1.5rem))] pt-[max(0.75rem,env(safe-area-inset-top))] sm:px-6 sm:pt-[max(1rem,env(safe-area-inset-top))] lg:max-w-5xl">
         <header className="glass rounded-2xl px-4 py-3 shadow-xl shadow-black/30 sm:px-5">
           <div className="space-y-3">
             <div className="flex items-center justify-between gap-3">
@@ -1255,9 +1341,9 @@ export default function Home() {
                 onClick={() => play("nav")}
                 whileTap={{ scale: 0.95 }}
                 whileHover={{ y: -2 }}
-                className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1 pl-1.5 pr-3.5 backdrop-blur transition hover:border-cyan-300/50 hover:text-white hover:shadow-lg hover:shadow-cyan-500/15"
+                className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1.5 pl-1.5 pr-3.5 backdrop-blur transition hover:border-cyan-300/50 hover:text-white hover:shadow-lg hover:shadow-cyan-500/15"
               >
-                <span className="grid h-6 w-6 place-items-center rounded-full bg-linear-to-br from-cyan-400 to-blue-500 text-[11px] shadow-sm shadow-black/30">
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-linear-to-br from-cyan-400 to-blue-500 text-[12px] shadow-sm shadow-black/30">
                   🔍
                 </span>
                 Lookup
@@ -1267,9 +1353,9 @@ export default function Home() {
                 onClick={() => play("nav")}
                 whileTap={{ scale: 0.95 }}
                 whileHover={{ y: -2 }}
-                className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1 pl-1.5 pr-3.5 backdrop-blur transition hover:border-fuchsia-300/50 hover:text-white hover:shadow-lg hover:shadow-fuchsia-500/15"
+                className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full border border-white/10 bg-white/5 py-1.5 pl-1.5 pr-3.5 backdrop-blur transition hover:border-fuchsia-300/50 hover:text-white hover:shadow-lg hover:shadow-fuchsia-500/15"
               >
-                <span className="grid h-6 w-6 place-items-center rounded-full bg-linear-to-br from-fuchsia-400 to-violet-500 text-[11px] shadow-sm shadow-black/30">
+                <span className="grid h-7 w-7 place-items-center rounded-full bg-linear-to-br from-fuchsia-400 to-violet-500 text-[12px] shadow-sm shadow-black/30">
                   {isAdmin ? "🛡️" : "👤"}
                 </span>
                 Admin
@@ -1283,9 +1369,9 @@ export default function Home() {
                   }}
                   whileTap={{ scale: 0.95 }}
                   whileHover={{ y: -2 }}
-                  className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-500/10 py-1 pl-1.5 pr-3.5 text-emerald-100 transition hover:border-emerald-300/60 hover:text-white hover:shadow-lg hover:shadow-emerald-500/15"
+                  className="inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-full border border-emerald-400/30 bg-emerald-500/10 py-1.5 pl-1.5 pr-3.5 text-emerald-100 transition hover:border-emerald-300/60 hover:text-white hover:shadow-lg hover:shadow-emerald-500/15"
                 >
-                  <span className="grid h-6 w-6 place-items-center rounded-full bg-linear-to-br from-emerald-400 to-teal-500 text-sm font-bold text-white shadow-sm shadow-black/30">
+                  <span className="grid h-7 w-7 place-items-center rounded-full bg-linear-to-br from-emerald-400 to-teal-500 text-sm font-bold text-white shadow-sm shadow-black/30">
                     ＋
                   </span>
                   Investor
@@ -1297,6 +1383,18 @@ export default function Home() {
 
         {!loading && !error && tickerTicks.length > 0 && (
           <TickerTape ticks={tickerTicks} />
+        )}
+
+        {/* The daily ritual: date, streak, greeting, and today's club brief.
+            Checking in is celebrated regardless of market color. */}
+        {!loading && !error && count > 0 && (
+          <DailyPulse
+            investors={investors}
+            groupDayChangePercent={groupDayChangePercent}
+            groupGainPct={groupGainPct}
+            topHolding={tickerTicks[0] ?? null}
+            onViewerChange={setViewerSlug}
+          />
         )}
 
         {!loading && !error && count > 0 && (
@@ -1345,7 +1443,21 @@ export default function Home() {
             </div>
           )}
 
-          {!loading && !error && count > 0 && (
+          {!loading && !error && count > 0 && isWide && (
+            // iPad and up: every card visible at once in a two-up grid — the
+            // carousel is a phone affordance, not a tablet one.
+            <div className="grid grid-cols-2 items-stretch gap-5">
+              {cardInvestors.map((investor) => (
+                <InvestorCard
+                  key={investor.slug}
+                  investor={investor}
+                  allInvestors={investors}
+                />
+              ))}
+            </div>
+          )}
+
+          {!loading && !error && count > 0 && !isWide && (
             <Carousel
               className="mx-auto w-full max-w-xl"
               arrows
@@ -1357,8 +1469,10 @@ export default function Home() {
               virtualize
               // Round the clip + pad each slide so the card's rounded corners
               // and drop shadow aren't cut into a square corner by the viewport.
+              // py-2.5 gives the (now tighter) card shadow room to fade out
+              // before the clip instead of ending in a hard line.
               viewportClassName="rounded-[2rem]"
-              slidePadding="px-1 py-1.5"
+              slidePadding="px-1 py-2.5"
               labels={cardInvestors.map((inv) => inv.name)}
               slides={cardInvestors.map((investor) => (
                 <InvestorCard
@@ -1370,6 +1484,8 @@ export default function Home() {
             />
           )}
         </section>
+
+        {!loading && !error && <InstallNudge />}
       </main>
 
       <Modal

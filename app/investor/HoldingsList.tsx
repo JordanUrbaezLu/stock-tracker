@@ -143,7 +143,7 @@ export function HoldingsList({
                   play("toggle");
                   setStatus(s);
                 }}
-                className={`cursor-pointer rounded-full px-3 py-1 font-medium capitalize transition ${
+                className={`cursor-pointer rounded-full px-3 py-2.5 font-medium capitalize transition ${
                   status === s
                     ? "bg-cyan-500/20 text-cyan-100"
                     : "text-slate-400 hover:text-white"
@@ -161,7 +161,7 @@ export function HoldingsList({
                 play(sortOpen ? "close" : "open");
                 setSortOpen((o) => !o);
               }}
-              className="inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:border-cyan-300/40 hover:text-white"
+              className="inline-flex h-11 cursor-pointer items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 text-xs font-medium text-slate-200 transition hover:border-cyan-300/40 hover:text-white"
             >
               <span className="text-slate-400">Sort:</span>
               {SORT_LABELS[sort]}
@@ -188,7 +188,7 @@ export function HoldingsList({
                         setSort(s);
                         setSortOpen(false);
                       }}
-                      className={`flex w-full cursor-pointer items-center justify-between rounded-lg px-3 py-1.5 text-left text-xs transition ${
+                      className={`flex h-11 w-full cursor-pointer items-center justify-between rounded-lg px-3 text-left text-xs transition ${
                         sort === s
                           ? "bg-cyan-500/15 text-cyan-100"
                           : "text-slate-300 hover:bg-white/5 hover:text-white"

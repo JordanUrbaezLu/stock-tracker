@@ -40,8 +40,8 @@ export default function AdminPage() {
   };
 
   return (
-    <div className="app-backdrop min-h-screen text-slate-100">
-      <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center gap-6 px-4 py-12 sm:px-6">
+    <div className="app-backdrop min-h-dvh pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-slate-100">
+      <main className="mx-auto flex min-h-dvh max-w-md flex-col justify-center gap-6 px-4 pb-[max(3rem,calc(env(safe-area-inset-bottom)+1.5rem))] pt-[max(3rem,env(safe-area-inset-top))] sm:px-6">
         <div>
           <BackButton className="inline-flex cursor-pointer items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-semibold text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white" />
         </div>
@@ -69,7 +69,7 @@ export default function AdminPage() {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="h-12 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-slate-100 outline-none transition focus:border-cyan-400"
+                className="h-12 w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 text-base text-slate-100 outline-none transition focus:border-cyan-400"
                 placeholder="Enter password"
                 disabled={isAdmin || status === "checking"}
               />

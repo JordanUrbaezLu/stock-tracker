@@ -391,9 +391,9 @@ function LookupContent() {
   }, [quote, perf, play]);
 
   return (
-    <div className="app-backdrop min-h-screen overflow-x-clip text-slate-100">
-      <main className="stagger-children mx-auto flex min-h-screen max-w-2xl flex-col gap-5 px-4 py-6 sm:px-6 sm:py-8">
-        <header className="glass relative overflow-hidden rounded-2xl px-3 py-3 shadow-xl shadow-black/30 sm:px-5">
+    <div className="app-backdrop min-h-dvh overflow-x-clip pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-slate-100">
+      <main className="stagger-children mx-auto flex min-h-dvh max-w-2xl flex-col gap-5 px-4 pb-[max(1.5rem,calc(env(safe-area-inset-bottom)+1.5rem))] pt-[max(1.5rem,env(safe-area-inset-top))] sm:px-6 sm:pb-[max(2rem,calc(env(safe-area-inset-bottom)+1.5rem))] sm:pt-[max(2rem,env(safe-area-inset-top))]">
+        <header className="glass relative rounded-2xl px-3 py-3 shadow-xl shadow-black/30 sm:px-5">
           <div className="relative flex items-center justify-between gap-2 sm:gap-3">
             <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
               <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-linear-to-br from-cyan-400 via-fuchsia-500 to-indigo-500 text-base">
@@ -415,7 +415,7 @@ function LookupContent() {
         <section className="glass relative rounded-3xl p-4 shadow-2xl shadow-black/30 sm:p-6">
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-0 overflow-hidden rounded-3xl"
+            className="pointer-events-none absolute inset-0 overflow-hidden rounded-[calc(1.5rem-1px)]"
           >
             <div className="absolute -right-20 -top-24 h-56 w-56 rounded-full bg-cyan-500/10 blur-3xl" />
           </div>
@@ -780,7 +780,7 @@ export default function LookupPage() {
   return (
     <Suspense
       fallback={
-        <div className="app-backdrop flex min-h-screen items-center justify-center text-slate-400">
+        <div className="app-backdrop flex min-h-dvh items-center justify-center pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-slate-400">
           Loading lookup…
         </div>
       }

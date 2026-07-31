@@ -111,15 +111,20 @@ export function RoastHype({ investor }: { investor: RoastInvestor }) {
   const accent = mode === "hype" ? "bg-emerald-300/90" : "bg-orange-300/90";
 
   return (
-    // Outer wrapper carries the NEW badge so it can sit on the border, while the
-    // card keeps overflow-hidden (which clips the background + blur to the
-    // rounded corners — the badge would otherwise be clipped).
+    // Outer wrapper carries the NEW badge so it can sit on the border; the
+    // decorative glow clips inside its own inset wrapper, so the card itself
+    // stays overflow-visible and never clips the badge.
     <div className="relative">
       <span className="absolute -top-2 right-5 z-20 inline-flex items-center rounded-full bg-linear-to-r from-rose-500 to-orange-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white shadow-md shadow-rose-500/40 ring-1 ring-white/20">
         New
       </span>
-      <section className="glass relative overflow-hidden rounded-3xl p-5 shadow-2xl shadow-orange-500/10 ring-1 ring-orange-400/10 sm:p-6">
-        <div className="pointer-events-none absolute -right-16 -top-16 h-44 w-44 rounded-full bg-orange-500/15 blur-3xl" />
+      <section className="glass relative rounded-3xl border-orange-400/15 p-5 shadow-2xl shadow-orange-500/10 sm:p-6">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
+        >
+          <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-orange-500/15 blur-3xl" />
+        </div>
       <div className="relative flex items-center gap-3">
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-linear-to-br from-orange-400 via-rose-500 to-fuchsia-500 text-lg shadow-lg shadow-black/30">
           🎤
@@ -205,7 +210,7 @@ export function RoastHype({ investor }: { investor: RoastInvestor }) {
                     <button
                       type="button"
                       onClick={() => run(mode ?? "roast")}
-                      className="cursor-pointer rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-medium text-slate-200 transition hover:border-white/25 hover:text-white"
+                      className="cursor-pointer rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-medium text-slate-200 transition hover:border-white/25 hover:text-white"
                     >
                       Again
                     </button>
