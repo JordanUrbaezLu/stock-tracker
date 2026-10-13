@@ -1,6 +1,9 @@
 "use client";
 
 import { useState } from "react";
+import { IconButton } from "./ui/Button";
+import { Card } from "./ui/Card";
+import { IconClose, IconShare } from "./ui/icons";
 
 const DISMISS_KEY = "pulse:nudge-dismissed";
 
@@ -37,18 +40,23 @@ export function InstallNudge() {
   if (!show) return null;
 
   return (
-    <div className="glass flex items-center gap-3 rounded-2xl border-cyan-400/15 px-4 py-3">
-      <span aria-hidden className="text-lg">
-        📌
+    <Card as="section" aria-label="Install the app" padding="sm" className="flex items-center gap-3">
+      <span
+        aria-hidden
+        className="grid size-11 shrink-0 -rotate-6 place-items-center rounded-2xl bg-amber-soft text-amber"
+      >
+        <IconShare size={22} />
       </span>
-      <p className="min-w-0 flex-1 text-xs leading-5 text-slate-300">
-        <span className="font-semibold text-white">Put the club on your home screen</span>
-        {" — "}tap <span className="font-semibold text-cyan-200">Share</span>, then{" "}
-        <span className="font-semibold text-cyan-200">Add to Home Screen</span>. One tap to
-        check in every day.
+      <p className="min-w-0 flex-1 text-[15px] leading-snug text-ink-2 text-pretty">
+        <strong className="font-bold text-ink">Put the club on your home screen</strong>
+        {" — "}tap <strong className="font-bold text-ink">Share</strong>, then{" "}
+        <strong className="font-bold text-ink">Add to Home Screen</strong>.
       </p>
-      <button
-        type="button"
+      <IconButton
+        label="Dismiss install tip"
+        variant="secondary"
+        size="sm"
+        className="shrink-0"
         onClick={() => {
           setShow(false);
           try {
@@ -57,11 +65,9 @@ export function InstallNudge() {
             // Dismiss for this session only.
           }
         }}
-        aria-label="Dismiss install tip"
-        className="grid h-11 w-11 shrink-0 cursor-pointer place-items-center rounded-full text-slate-400 transition hover:bg-white/10 hover:text-white"
       >
-        ✕
-      </button>
-    </div>
+        <IconClose />
+      </IconButton>
+    </Card>
   );
 }

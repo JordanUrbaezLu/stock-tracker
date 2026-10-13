@@ -102,8 +102,8 @@ export function AdminProvider({ children }: { children: ReactNode }) {
     setIsAdminState(false);
   }, [todayKey]);
 
-  // Flag the document while an admin is signed in so global styles can add a
-  // subtle pink "admin mode" wash to glass surfaces (see globals.css).
+  // Flag the document while an admin is signed in so styles can react (the
+  // shell itself reads useAdmin() for the amber "Admin" chip and brand-bar edge).
   useEffect(() => {
     if (typeof document === "undefined") return;
     const root = document.documentElement;

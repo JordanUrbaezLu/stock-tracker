@@ -1,10 +1,13 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { ReactNode, UIEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import useEmblaCarousel from "embla-carousel-react";
 import { WheelGesturesPlugin } from "embla-carousel-wheel-gestures";
 import { useSound } from "./SoundContext";
+import { IconButton } from "./ui/Button";
+import { cx } from "./ui/cx";
+import { IconChevronLeft, IconChevronRight } from "./ui/icons";
 
 type CarouselProps = {
   slides: ReactNode[];
@@ -152,12 +155,32 @@ export function Carousel({
 
   const count = slides.length;
   const multi = count > 1;
+
+  // Embla moves the track with transforms; the clipped viewport must never
+  // scroll natively. A browser "scroll into view" (assistive tech, find-in-
+  // page, a programmatic focus — Embla itself only catches Tab) would shift
+  // it and leave every later swipe offset. Undo the shift, and if it was
+  // reaching for a neighboring slide, go there the Embla way instead.
+  const onNativeScroll = (e: UIEvent<HTMLDivElement>) => {
+    const el = e.currentTarget;
+    const shift = el.scrollLeft;
+    if (shift === 0 && el.scrollTop === 0) return;
+    el.scrollLeft = 0;
+    el.scrollTop = 0;
+    if (!embla || Math.abs(shift) < el.clientWidth * 0.4) return;
+    const target = embla.selectedScrollSnap() + Math.sign(shift);
+    if (target >= 0 && target < count) embla.scrollTo(target);
+  };
   const activeLabel = labels?.[selected] ?? "";
   const hintText = typeof hint === "function" ? hint(activeLabel) : hint;
 
   return (
-    <div className={`relative ${className ?? ""}`}>
-      <div className={`overflow-hidden ${viewportClassName}`} ref={emblaRef}>
+    <div className={cx("relative", className)}>
+      <div
+        className={cx("overflow-hidden", viewportClassName)}
+        ref={emblaRef}
+        onScroll={onNativeScroll}
+      >
         <div
           ref={trackRef}
           className="flex"
@@ -170,7 +193,7 @@ export function Carousel({
           {slides.map((slide, i) => (
             <div
               key={i}
-              className={`min-w-0 shrink-0 grow-0 basis-full ${slidePadding}`}
+              className={cx("min-w-0 shrink-0 grow-0 basis-full", slidePadding)}
             >
               {/* Virtualized: render one slide behind and TWO ahead of the
                   CURRENT slide (driven by the live scroll position, so the +2
@@ -185,60 +208,63 @@ export function Carousel({
       </div>
 
       {multi && (
-        <div className="mt-4 flex flex-col items-center gap-2">
-          {/* On desktop the arrows sit inline with the dots (◀ • • • ▶) rather
+        <div className="mt-3 flex flex-col items-center gap-1.5">
+          {/* On desktop the arrows sit inline with the dots (‹ • • • ›) rather
               than floating over the card content; on mobile it's swipe + dots. */}
           <div className="flex items-center gap-3">
             {arrows && (
-              <button
-                type="button"
-                onClick={() => embla?.scrollPrev()}
-                disabled={!canPrev}
-                aria-label="Previous"
-                className="hidden h-11 w-11 cursor-pointer place-items-center rounded-full border border-white/10 bg-white/5 text-cyan-200 transition hover:border-cyan-300/60 hover:text-white active:scale-95 disabled:cursor-not-allowed disabled:opacity-30 md:grid"
-              >
-                ◀
-              </button>
+              // Wrapped: the key owns its own display, so the breakpoint
+              // lives on the wrapper.
+              <span className="hidden md:block">
+                <IconButton
+                  label="Previous"
+                  variant="secondary"
+                  onClick={() => embla?.scrollPrev()}
+                  disabled={!canPrev}
+                >
+                  <IconChevronLeft />
+                </IconButton>
+              </span>
             )}
             <div className="flex items-center">
-              {/* Each dot stays visually tiny but lives inside a 44px-tall hit
-                  box — an 8px dot is untappable on a phone. */}
+              {/* Each dot stays visually small but lives inside a 44px-tall hit
+                  box — a 10px bead is untappable on a phone. The current one
+                  is an amber key-pill on its lip. */}
               {slides.map((_, i) => (
                 <button
                   key={i}
                   type="button"
                   onClick={() => embla?.scrollTo(i)}
                   aria-label={`Go to ${labels?.[i] ?? `slide ${i + 1}`}`}
-                  className="flex h-11 min-w-5 cursor-pointer items-center justify-center px-1"
+                  aria-current={i === selected ? "true" : undefined}
+                  className="group flex h-11 min-w-8 cursor-pointer items-center justify-center rounded-full px-1"
                 >
                   <span
-                    className={`h-2 rounded-full transition-all ${
+                    className={cx(
+                      "h-2.5 rounded-full transition-[width,background-color] duration-200 ease-board motion-reduce:transition-none",
                       i === selected
-                        ? "w-7 bg-linear-to-r from-cyan-400 to-fuchsia-400"
-                        : "w-2 bg-slate-600 hover:bg-slate-400"
-                    }`}
+                        ? "w-7 bg-amber-bright shadow-[0_2px_0_var(--amber-lip)]"
+                        : "w-2.5 bg-line-strong group-hover:bg-faint",
+                    )}
                   />
                 </button>
               ))}
             </div>
             {arrows && (
-              <button
-                type="button"
-                onClick={() => embla?.scrollNext()}
-                disabled={!canNext}
-                aria-label="Next"
-                className="hidden h-11 w-11 cursor-pointer place-items-center rounded-full border border-white/10 bg-white/5 text-cyan-200 transition hover:border-cyan-300/60 hover:text-white active:scale-95 disabled:cursor-not-allowed disabled:opacity-30 md:grid"
-              >
-                ▶
-              </button>
+              <span className="hidden md:block">
+                <IconButton
+                  label="Next"
+                  variant="secondary"
+                  onClick={() => embla?.scrollNext()}
+                  disabled={!canNext}
+                >
+                  <IconChevronRight />
+                </IconButton>
+              </span>
             )}
           </div>
           {hintText && (
-            <p
-              className={`text-[11px] text-slate-500 ${
-                hintMobileOnly ? "md:hidden" : ""
-              }`}
-            >
+            <p className={cx("text-[13px] text-muted", hintMobileOnly && "md:hidden")}>
               {hintText}
             </p>
           )}

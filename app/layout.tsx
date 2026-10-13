@@ -1,40 +1,41 @@
 import type { Metadata, Viewport } from "next";
-import { Geist, Geist_Mono, Space_Grotesk } from "next/font/google";
+import { Archivo, Martian_Mono } from "next/font/google";
 import "./globals.css";
 import { AdminProvider } from "./AdminContext";
 import { SoundProvider } from "./SoundContext";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+// The whole UI voice: Archivo's width axis gives one family two registers —
+// extra-condensed heavy numerals for the board, normal width for reading.
+const archivo = Archivo({
+  variable: "--font-archivo",
   subsets: ["latin"],
+  axes: ["wdth"],
+  display: "swap",
 });
 
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
+// Data labels only (dates, eyebrows, tape symbols, axis labels).
+const martianMono = Martian_Mono({
+  variable: "--font-martian",
   subsets: ["latin"],
-});
-
-// Display face for the hero numbers, headings, and brand — a confident,
-// tabular-figured grotesk that gives the big financial values real presence.
-const spaceGrotesk = Space_Grotesk({
-  variable: "--font-display",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
+  axes: ["wdth"],
+  display: "swap",
 });
 
 // viewport-fit=cover lets the app draw edge-to-edge under the notch/home
-// indicator (required for env(safe-area-inset-*) to be non-zero on iOS —
-// pages pad with it so content clears the Dynamic Island and home bar).
+// indicator (required for env(safe-area-inset-*) to be non-zero on iOS). The
+// brand bar is always the dark board color, so the black-translucent status
+// bar's white text stays legible over the light hall.
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#05060f",
+  themeColor: "#141219",
 };
 
 export const metadata: Metadata = {
   title: "Stock Tracker",
-  description: "Look up live stock prices by ticker symbol.",
+  description:
+    "The family stock club — live portfolios, standings, and a daily check-in.",
   appleWebApp: {
     capable: true,
     title: "Stock Tracker",
@@ -50,7 +51,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${spaceGrotesk.variable} antialiased`}
+        className={`${archivo.variable} ${martianMono.variable} font-sans antialiased`}
       >
         <AdminProvider>
           <SoundProvider>{children}</SoundProvider>

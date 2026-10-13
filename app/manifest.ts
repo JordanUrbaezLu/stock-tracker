@@ -4,11 +4,14 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Stock Tracker",
     short_name: "Stocks",
-    description: "Look up live stock prices by ticker symbol.",
+    description:
+      "The family stock club — live portfolios, standings, and a daily check-in.",
     start_url: "/",
     display: "standalone",
-    background_color: "#05060f",
-    theme_color: "#05060f",
+    // The board color (--board): splash screen and status bar match the
+    // brand bar.
+    background_color: "#141219",
+    theme_color: "#141219",
     icons: [
       {
         src: "/apple-icon",

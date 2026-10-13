@@ -1,0 +1,1023 @@
+/* ============================================================================
+   Arena objects (DESIGN §3): Sticker, Stamp, LevelBar, TiltCard, Podium.
+   Physical toys: each rests on a solid lip or casts a real shadow, enters with
+   a bouncy spring, and holds still under reduced motion.
+
+   Tokens only, plus a few MATERIAL constants named once per object: sticker
+   paper, medal metals, foil inks. Like the pops and amber-bright, they are
+   objects, not lighting, so they don't flip with the theme.
+
+   Everything sits in the `components` layer so utilities passed through
+   `className` still win. Re-stating Tailwind's layer order keeps that true
+   even if this sheet loads before globals.css.
+   ========================================================================== */
+
+@layer theme, base, components, utilities;
+
+@layer components {
+  /* ------------------------------------------------------------ Sticker -- */
+
+  /* A die-cut vinyl sticker: pastel fill (the DESIGN pop colors mixed into
+     white paper — opaque, so a sticker slapped over a card edge hides the
+     edge), a thick paper border, a gloss, and a layered contact shadow. */
+  .arena-sticker {
+    --st-size: 44px;
+    --st-ring: clamp(3px, calc(var(--st-size) * 0.08), 4px);
+    --paper: #ffffff;
+    --st-tone: var(--paper);
+    --st-fill: var(--paper);
+    --st-ink: #3e3b4e;
+    --st-shadow: rgb(46 38 110 / 0.3);
+    --st-burst: max(32px, calc(var(--st-size) * 0.52));
+    position: relative;
+    display: inline-grid;
+    flex: none;
+    place-items: center;
+    width: var(--st-size);
+    height: var(--st-size);
+    vertical-align: middle;
+    -webkit-tap-highlight-color: transparent;
+  }
+  @media (prefers-color-scheme: dark) {
+    .arena-sticker {
+      --paper: #ece9f7;
+      --st-shadow: rgb(0 0 0 / 0.6);
+    }
+  }
+  .on-board .arena-sticker {
+    --paper: #ece9f7;
+    --st-shadow: rgb(0 0 0 / 0.6);
+  }
+
+  .arena-sticker[data-tone="gold"] {
+    --st-tone: var(--amber-bright);
+    --st-fill: color-mix(in oklab, var(--amber-bright) 34%, var(--paper));
+  }
+  .arena-sticker[data-tone="green"] {
+    --st-tone: var(--pop-lime);
+    --st-fill: color-mix(in oklab, var(--pop-lime) 30%, var(--paper));
+  }
+  .arena-sticker[data-tone="blue"] {
+    --st-tone: var(--pop-blue);
+    --st-fill: color-mix(in oklab, var(--pop-blue) 22%, var(--paper));
+  }
+  .arena-sticker[data-tone="purple"] {
+    --st-tone: var(--pop-violet);
+    --st-fill: color-mix(in oklab, var(--pop-violet) 24%, var(--paper));
+  }
+  .arena-sticker[data-tone="rose"] {
+    --st-tone: var(--pop-pink);
+    --st-fill: color-mix(in oklab, var(--pop-pink) 24%, var(--paper));
+  }
+  .arena-sticker[data-tone]:not([data-tone="neutral"]) {
+    /* Icon stickers: the tone, deepened to read on its own pastel. */
+    --st-ink: color-mix(in oklab, var(--st-tone) 58%, #16141f);
+  }
+
+  .arena-sticker__body {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+    border: var(--st-ring) solid var(--paper);
+    border-radius: var(--st-shape, 50%);
+    background: var(--st-fill);
+    color: var(--st-ink);
+    box-shadow:
+      0 0 0 0.5px rgb(22 20 31 / 0.1),
+      0 1.5px 1px rgb(22 20 31 / 0.12),
+      0 4px 8px -2px var(--st-shadow),
+      0 12px 18px -10px var(--st-shadow);
+    transition: scale 0.15s var(--ease-board);
+  }
+  /* Vinyl gloss, top-left. */
+  .arena-sticker__body::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: radial-gradient(
+      110% 75% at 26% 10%,
+      rgb(255 255 255 / 0.5),
+      rgb(255 255 255 / 0) 58%
+    );
+    pointer-events: none;
+  }
+
+  .arena-sticker__art {
+    display: grid;
+    place-items: center;
+    font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", var(--font-sans);
+    font-size: calc(var(--st-size) * 0.48);
+    line-height: 1;
+    /* Optical centring: emoji sit a hair high in the line box. */
+    translate: 0 0.03em;
+  }
+  .arena-sticker__art svg {
+    width: calc(var(--st-size) * 0.46);
+    height: calc(var(--st-size) * 0.46);
+  }
+
+  /* Locked: the empty slot in the album — dashed outline, no paper, a "?". */
+  .arena-sticker[data-locked] .arena-sticker__body {
+    border: 2px dashed var(--line-strong);
+    background: var(--surface-2);
+    color: var(--muted);
+    box-shadow: none;
+  }
+  .arena-sticker[data-locked] .arena-sticker__body::after {
+    content: none;
+  }
+  .arena-sticker__q {
+    font-family: var(--font-display);
+    font-stretch: 72%;
+    font-weight: 800;
+    font-size: calc(var(--st-size) * 0.44);
+    line-height: 1;
+  }
+
+  /* The NEW starburst, stuck on the corner. The shadow lives on the wrapper
+     because clip-path would clip it off the star. */
+  .arena-sticker__new {
+    position: absolute;
+    top: -16%;
+    right: -22%;
+    width: var(--st-burst);
+    height: var(--st-burst);
+    rotate: 16deg;
+    filter: drop-shadow(0 1.5px 0 var(--amber-lip));
+    pointer-events: none;
+  }
+  .arena-sticker__new > span {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+    background: var(--amber-bright);
+    clip-path: polygon(50% 0%, 59.84% 13.3%, 75% 6.7%, 76.87% 23.13%, 93.3% 25%, 86.7% 40.16%, 100% 50%, 86.7% 59.84%, 93.3% 75%, 76.87% 76.87%, 75% 93.3%, 59.84% 86.7%, 50% 100%, 40.16% 86.7%, 25% 93.3%, 23.13% 76.87%, 6.7% 75%, 13.3% 59.84%, 0% 50%, 13.3% 40.16%, 6.7% 25%, 23.13% 23.13%, 25% 6.7%, 40.16% 13.3%);
+    font-family: var(--font-display);
+    font-stretch: 72%;
+    font-weight: 800;
+    font-size: 12px;
+    line-height: 1;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+  }
+
+  /* As a button: the visual stays `size`, the hit box is ≥44px. */
+  button.arena-sticker {
+    border: 0;
+    padding: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    border-radius: 50%;
+  }
+  button.arena-sticker::before {
+    content: "";
+    position: absolute;
+    inset: min(0px, calc((var(--st-size) - 44px) / 2));
+    border-radius: 50%;
+  }
+  button.arena-sticker:focus-visible {
+    outline-offset: 3px;
+  }
+  @media (hover: hover) and (pointer: fine) {
+    button.arena-sticker:hover .arena-sticker__body {
+      animation: arena-wiggle 0.55s ease-in-out;
+    }
+  }
+  button.arena-sticker:active .arena-sticker__body {
+    scale: 0.93;
+  }
+
+  @keyframes arena-wiggle {
+    0%,
+    100% {
+      rotate: 0deg;
+    }
+    20% {
+      rotate: -8deg;
+    }
+    45% {
+      rotate: 6deg;
+    }
+    70% {
+      rotate: -3deg;
+    }
+    85% {
+      rotate: 1.5deg;
+    }
+  }
+
+  /* -------------------------------------------------------------- Stamp -- */
+
+  /* A rubber stamp: double-ruled frame + condensed caps in one ink, a faint
+     wash of the same ink inside, and wear from two noise masks (fine speckle
+     × broad blotches of uneven pressure). Each stamp shifts the masks by its
+     own seed so no two wear the same. */
+  .arena-stamp {
+    --stamp-color: var(--ink);
+    --stamp-fs: 15px;
+    --stamp-px: 12px;
+    --stamp-py: 7px;
+    --stamp-rule: 2.5px;
+    --stamp-gap: 2.5px;
+    --stamp-r: 9px;
+    position: relative;
+    display: inline-block;
+    vertical-align: middle;
+    color: var(--stamp-color);
+    line-height: 1;
+  }
+  .arena-stamp[data-tone="amber"] {
+    --stamp-color: var(--amber);
+  }
+  .arena-stamp[data-tone="gain"] {
+    --stamp-color: var(--gain);
+  }
+  .arena-stamp[data-tone="loss"] {
+    --stamp-color: var(--loss);
+  }
+  .arena-stamp[data-size="sm"] {
+    --stamp-fs: 12px;
+    --stamp-px: 9px;
+    --stamp-py: 6px;
+    --stamp-rule: 2px;
+    --stamp-gap: 2px;
+    --stamp-r: 7px;
+  }
+  .arena-stamp[data-size="lg"] {
+    --stamp-fs: 26px;
+    --stamp-px: 18px;
+    --stamp-py: 11px;
+    --stamp-rule: 3.5px;
+    --stamp-gap: 3.5px;
+    --stamp-r: 13px;
+  }
+
+  .arena-stamp__ink {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    padding: var(--stamp-py) var(--stamp-px);
+    border: var(--stamp-rule) solid currentColor;
+    border-radius: var(--stamp-r);
+    background: color-mix(in oklab, currentColor 8%, transparent);
+    font-family: var(--font-display);
+    font-stretch: 72%;
+    font-weight: 800;
+    font-size: var(--stamp-fs);
+    line-height: 1;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    opacity: 0.9;
+    -webkit-mask:
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='96' height='96'><filter id='n' x='0' y='0' width='100%' height='100%' color-interpolation-filters='sRGB'><feTurbulence type='fractalNoise' baseFrequency='.6' numOctaves='2' seed='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -3.4 0 0 0 2.95'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>")
+        var(--stamp-mx, 0px) var(--stamp-my, 0px) / 96px 96px,
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='b' x='0' y='0' width='100%' height='100%' color-interpolation-filters='sRGB'><feTurbulence type='fractalNoise' baseFrequency='.035' numOctaves='2' seed='9' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -2.2 0 0 0 2'/></filter><rect width='100%' height='100%' filter='url(%23b)'/></svg>")
+        var(--stamp-my, 0px) var(--stamp-mx, 0px) / 220px 220px;
+    -webkit-mask-composite: source-in;
+    mask:
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='96' height='96'><filter id='n' x='0' y='0' width='100%' height='100%' color-interpolation-filters='sRGB'><feTurbulence type='fractalNoise' baseFrequency='.6' numOctaves='2' seed='3' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -3.4 0 0 0 2.95'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>")
+        var(--stamp-mx, 0px) var(--stamp-my, 0px) / 96px 96px,
+      url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='b' x='0' y='0' width='100%' height='100%' color-interpolation-filters='sRGB'><feTurbulence type='fractalNoise' baseFrequency='.035' numOctaves='2' seed='9' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 -2.2 0 0 0 2'/></filter><rect width='100%' height='100%' filter='url(%23b)'/></svg>")
+        var(--stamp-my, 0px) var(--stamp-mx, 0px) / 220px 220px;
+    mask-composite: intersect;
+  }
+  /* The inner rule of the double frame. */
+  .arena-stamp__ink::before {
+    content: "";
+    position: absolute;
+    inset: var(--stamp-gap);
+    border: max(1px, calc(var(--stamp-rule) * 0.45)) solid currentColor;
+    border-radius: max(2px, calc(var(--stamp-r) - var(--stamp-rule) - var(--stamp-gap) + 1px));
+    pointer-events: none;
+  }
+  .arena-stamp__text {
+    /* Tracking adds space after the last letter; give it back so the word
+       sits centred in the frame. */
+    margin-right: -0.12em;
+    translate: 0 0.04em;
+  }
+  /* Round stamp: a postmark. Same ink and wear, a double ring instead of a
+     frame; a short word, a number or an icon centred inside. */
+  .arena-stamp[data-shape="round"] .arena-stamp__ink {
+    justify-content: center;
+    width: 2.5em;
+    height: 2.5em;
+    padding: 0;
+    border-radius: 9999px;
+    letter-spacing: 0.04em;
+  }
+  .arena-stamp[data-shape="round"] .arena-stamp__ink::before,
+  .arena-stamp[data-shape="round"] .arena-stamp__puff {
+    border-radius: 9999px;
+  }
+  .arena-stamp[data-shape="round"] .arena-stamp__text {
+    display: grid;
+    place-items: center;
+    margin-right: 0;
+  }
+  .arena-stamp__text > svg {
+    width: 1.15em;
+    height: 1.15em;
+  }
+  /* The impact puff: a ring of displaced ink-air, gone in a blink. */
+  .arena-stamp__puff {
+    position: absolute;
+    inset: -3px;
+    border: 2px solid currentColor;
+    border-radius: calc(var(--stamp-r) + 3px);
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  /* ----------------------------------------------------------- LevelBar -- */
+
+  .arena-level {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+  }
+  .arena-level--compact {
+    gap: 10px;
+  }
+
+  /* A faceted amber gem: lip, face, and a lighter upper facet. */
+  .arena-level__badge {
+    position: relative;
+    flex: none;
+    width: var(--lv-w, 56px);
+    aspect-ratio: 56 / 64;
+    animation: arena-pop 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both;
+  }
+  .arena-level--compact .arena-level__badge {
+    --lv-w: 44px;
+  }
+  .arena-level__badge > svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
+  .arena-level__lip {
+    fill: var(--amber-lip);
+    stroke: var(--amber-lip);
+  }
+  .arena-level__face {
+    fill: var(--amber-bright);
+    stroke: var(--amber-bright);
+  }
+  .arena-level__facet {
+    fill: rgb(255 255 255 / 0.32);
+  }
+  .arena-level__mark {
+    position: absolute;
+    inset: 0 0 9%;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 1px;
+    font-family: var(--font-display);
+    font-stretch: 72%;
+    font-weight: 800;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .arena-level__lv {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    opacity: 0.72;
+  }
+  .arena-level__num {
+    font-size: calc(var(--lv-w, 56px) * 0.47);
+    letter-spacing: -0.02em;
+  }
+
+
+  /* Segmented XP bar: five chunky cells, filling left → right on mount. */
+  .arena-level__bar {
+    display: flex;
+    gap: 5px;
+  }
+  .arena-level__seg {
+    position: relative;
+    flex: 1 1 0;
+    height: 14px;
+    border-radius: 9999px;
+    background: var(--surface-3);
+    box-shadow: inset 0 2px 0 rgb(22 20 31 / 0.07);
+  }
+  .arena-level--compact .arena-level__seg {
+    height: 9px;
+  }
+  .arena-level__fill {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: var(--amber-bright);
+    box-shadow:
+      inset 0 -3px 0 var(--amber-lip),
+      inset 0 2px 0 rgb(255 255 255 / 0.45);
+    /* Clip (not scale) so the rounded end and the lip never squash. */
+    clip-path: inset(0 calc((1 - var(--fill)) * 100%) 0 0 round 9999px);
+    animation: arena-fill 0.55s cubic-bezier(0.34, 1.45, 0.64, 1) both;
+    animation-delay: calc(0.25s + var(--i) * 0.11s);
+    /* Later value changes slide too. */
+    transition: clip-path 0.6s cubic-bezier(0.34, 1.3, 0.64, 1);
+  }
+  .arena-level--compact .arena-level__fill {
+    box-shadow:
+      inset 0 -2px 0 var(--amber-lip),
+      inset 0 1px 0 rgb(255 255 255 / 0.45);
+  }
+  @keyframes arena-fill {
+    from {
+      clip-path: inset(0 100% 0 0 round 9999px);
+    }
+  }
+  @keyframes arena-pop {
+    from {
+      opacity: 0;
+      scale: 0.55;
+    }
+  }
+
+  /* ----------------------------------------------------------- TiltCard -- */
+
+  /* Layers: root (perspective, pointer target) → body (pointer tilt) →
+     flipper (rotateY 180 when flipped) → faces stacked in one grid cell, so
+     the card is always as tall as its taller face. */
+  .arena-tilt {
+    --tilt-rx: 0deg;
+    --tilt-ry: 0deg;
+    --tilt-mx: 50%;
+    --tilt-my: 28%;
+    position: relative;
+    display: grid;
+    perspective: 1100px;
+  }
+  .arena-tilt__body {
+    display: grid;
+    transform-style: preserve-3d;
+    transform: rotateX(var(--tilt-rx)) rotateY(var(--tilt-ry));
+    transition:
+      transform 0.7s var(--ease-board),
+      scale 0.4s var(--ease-board);
+  }
+  .arena-tilt[data-tilting] .arena-tilt__body {
+    scale: 1.015;
+    /* Short + linear: smooths the per-frame targets without lagging. */
+    transition:
+      transform 0.1s linear,
+      scale 0.4s var(--ease-board);
+  }
+  .arena-tilt__flipper {
+    display: grid;
+    transform-style: preserve-3d;
+    /* Overshoots a few degrees and settles: a card flipped by a thumb. */
+    transition: transform 0.8s cubic-bezier(0.3, 1.32, 0.45, 1);
+  }
+  .arena-tilt[data-flipped] .arena-tilt__flipper {
+    transform: rotateY(180deg);
+  }
+
+  .arena-tilt__face {
+    position: relative;
+    grid-area: 1 / 1;
+    display: grid;
+    min-width: 0;
+    border-radius: var(--tilt-r, 24px);
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
+    /* Explicit 3D transform: Safari only honours backface hiding on faces
+       that have one. */
+    transform: rotateY(0deg);
+    box-shadow:
+      0 4px 0 var(--tilt-lip, var(--lip)),
+      var(--elev-ambient);
+  }
+  .arena-tilt__face--back {
+    transform: rotateY(180deg);
+  }
+  /* Only the faces take pointer hits. The flipper is coplanar with the back
+     face, so once the card is tilted the 3D hit test would land on the
+     flipper instead of a control on the back (a click on a logo did nothing).
+     Tilt still tracks: its handlers sit on the root and the events bubble. */
+  .arena-tilt__body,
+  .arena-tilt__flipper {
+    pointer-events: none;
+  }
+  .arena-tilt__face {
+    pointer-events: auto;
+  }
+  .arena-tilt__face[inert] {
+    pointer-events: none;
+  }
+
+  /* Foil (front only) and glare: decorative, clipped to the card. */
+  .arena-tilt__foil,
+  .arena-tilt__glare {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    border-radius: inherit;
+    pointer-events: none;
+  }
+  .arena-tilt__foil {
+    --foil-a: rgb(255 236 179 / 0.95);
+    --foil-b: rgb(255 196 87 / 0.6);
+    --foil-c: rgb(214 141 32 / 0.45);
+    /* The sheen lightens the face under the card's white text, so it stays
+       light: at 0.24 over a face deepened for it (jerseyCard(name, 6.4)) the
+       13-15px lines keep 4.5:1. At 0.42 they fell to 2-3.5:1. */
+    opacity: 0.24;
+    mix-blend-mode: overlay;
+    background:
+      radial-gradient(
+        farthest-corner circle at var(--tilt-mx) var(--tilt-my),
+        var(--foil-a) 0%,
+        var(--foil-b) 24%,
+        transparent 58%
+      ),
+      linear-gradient(
+        115deg,
+        transparent 18%,
+        var(--foil-b) 36%,
+        var(--foil-a) 47%,
+        var(--foil-c) 58%,
+        transparent 78%
+      );
+    background-size:
+      100% 100%,
+      240% 240%;
+    background-position:
+      0 0,
+      var(--tilt-mx) var(--tilt-my);
+  }
+  .arena-tilt[data-foil="silver"] .arena-tilt__foil {
+    --foil-a: rgb(250 252 255 / 0.95);
+    --foil-b: rgb(197 210 236 / 0.6);
+    --foil-c: rgb(140 150 182 / 0.45);
+  }
+  .arena-tilt[data-foil="bronze"] .arena-tilt__foil {
+    --foil-a: rgb(255 222 196 / 0.95);
+    --foil-b: rgb(232 150 96 / 0.6);
+    --foil-c: rgb(168 96 52 / 0.45);
+  }
+  /* Holo: a rainbow band that slides with the pointer + fine diagonal
+     grating. Overlay like the metals (color-dodge bleached the jersey and
+     left the viewer's own name and value at 2.5:1). */
+  .arena-tilt[data-foil="holo"] .arena-tilt__foil {
+    opacity: 0.2;
+    background:
+      radial-gradient(
+        farthest-corner circle at var(--tilt-mx) var(--tilt-my),
+        rgb(255 255 255 / 0.7) 0%,
+        transparent 50%
+      ),
+      repeating-linear-gradient(
+        45deg,
+        rgb(255 255 255 / 0.1) 0 1px,
+        transparent 1px 5px
+      ),
+      linear-gradient(
+        115deg,
+        #ff6fb1 0%,
+        #ffcf6b 16%,
+        #86f0c0 32%,
+        #74b8ff 48%,
+        #b996ff 64%,
+        #ff6fb1 80%,
+        #ffcf6b 100%
+      );
+    background-size:
+      100% 100%,
+      auto,
+      200% 200%;
+    background-position:
+      0 0,
+      0 0,
+      var(--tilt-mx) var(--tilt-my);
+  }
+
+  /* Foil trim: a metal (or rainbow) ring just inside the edge, so a card's
+     rank reads at a glance even standing still on a phone. The gradient
+     border is a padding ring cut out with a mask. */
+  .arena-tilt__trim {
+    --trim: linear-gradient(125deg, #fff1c4 0%, #ffb547 22%, #c9840f 40%, #ffe29a 56%, #d4891c 74%, #fff1c4 100%);
+    position: absolute;
+    inset: 0;
+    padding: 4px;
+    border-radius: inherit;
+    background: var(--trim);
+    background-size: 200% 200%;
+    background-position: var(--tilt-mx) var(--tilt-my);
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask:
+      linear-gradient(#000 0 0) content-box exclude,
+      linear-gradient(#000 0 0);
+    pointer-events: none;
+  }
+  .arena-tilt[data-foil="silver"] .arena-tilt__trim {
+    --trim: linear-gradient(125deg, #ffffff 0%, #c5c8d6 22%, #8a8ea3 40%, #f1f2f8 56%, #a3a7ba 74%, #ffffff 100%);
+  }
+  .arena-tilt[data-foil="bronze"] .arena-tilt__trim {
+    --trim: linear-gradient(125deg, #ffe0c2 0%, #d99560 22%, #9c5d31 40%, #f5bf91 56%, #b8743f 74%, #ffe0c2 100%);
+  }
+  .arena-tilt[data-foil="holo"] .arena-tilt__trim {
+    --trim: conic-gradient(from 200deg, #ff6fb1, #ffcf6b, #86f0c0, #74b8ff, #b996ff, #ff6fb1);
+  }
+
+  .arena-tilt__glare {
+    opacity: 0;
+    mix-blend-mode: soft-light;
+    background: radial-gradient(
+      circle at var(--tilt-mx) var(--tilt-my),
+      rgb(255 255 255 / 0.85),
+      transparent 55%
+    );
+    transition: opacity 0.4s var(--ease-board);
+  }
+  /* The back is mirrored, so its glare tracks the mirrored point. */
+  .arena-tilt__face--back .arena-tilt__glare {
+    background: radial-gradient(
+      circle at calc(100% - var(--tilt-mx)) var(--tilt-my),
+      rgb(255 255 255 / 0.85),
+      transparent 55%
+    );
+  }
+  .arena-tilt[data-tilting] .arena-tilt__glare {
+    opacity: 1;
+  }
+
+  /* Touch screens can't hover-tilt (it would fight swipes and scrolling), so
+     the foil catches the light on its own: a slow sweep every few seconds. */
+  @media (hover: none), (pointer: coarse) {
+    .arena-tilt[data-foil] .arena-tilt__foil::after {
+      content: "";
+      position: absolute;
+      inset: -20% -60%;
+      background: linear-gradient(
+        100deg,
+        transparent 40%,
+        rgb(255 255 255 / 0.8) 50%,
+        transparent 60%
+      );
+      translate: -60% 0;
+      animation: arena-sweep 7s var(--ease-board) var(--tilt-sweep-delay, 1.2s) infinite;
+    }
+  }
+  @keyframes arena-sweep {
+    0% {
+      translate: -60% 0;
+    }
+    24%,
+    100% {
+      translate: 60% 0;
+    }
+  }
+
+  /* FlipButton: a round secondary key (.ui-key in primitives.css owns the
+     lip, press and focus ring); the arrow spins a half turn on hover. */
+  .arena-flip {
+    -webkit-tap-highlight-color: transparent;
+  }
+  .arena-flip > svg {
+    transition: rotate 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+  @media (hover: hover) and (pointer: fine) {
+    .arena-flip:hover > svg {
+      rotate: 180deg;
+    }
+  }
+
+  /* -------------------------------------------------------------- Medal -- */
+
+  /* A struck coin: metal face with a top-left shine, an engraved inner ring,
+     a solid lip, and the place in condensed heavy figures. Off the podium
+     it's a plain coin in the context's tokens. */
+  .arena-medal {
+    --medal-size: 36px;
+    --medal-face: var(--surface-3);
+    --medal-lip: var(--lip);
+    --medal-ink: var(--ink);
+    --medal-ring: color-mix(in oklab, var(--ink) 14%, transparent);
+    position: relative;
+    display: inline-grid;
+    flex: none;
+    place-items: center;
+    width: var(--medal-size);
+    height: var(--medal-size);
+    border-radius: 9999px;
+    background:
+      radial-gradient(circle at 32% 26%, rgb(255 255 255 / 0.5), rgb(255 255 255 / 0) 52%),
+      var(--medal-face);
+    box-shadow:
+      inset 0 0 0 1px rgb(255 255 255 / 0.18),
+      0 calc(var(--medal-size) * 0.08) 0 var(--medal-lip);
+    color: var(--medal-ink);
+  }
+  .arena-medal::before {
+    content: "";
+    position: absolute;
+    inset: calc(var(--medal-size) * 0.12);
+    border: max(1px, calc(var(--medal-size) * 0.04)) solid var(--medal-ring);
+    border-radius: inherit;
+    pointer-events: none;
+  }
+  .arena-medal[data-metal] {
+    --medal-ink: #16141f;
+    --medal-ring: rgb(22 20 31 / 0.16);
+  }
+  .arena-medal[data-metal="gold"] {
+    --medal-face: var(--metal-gold);
+    --medal-lip: var(--metal-gold-lip);
+  }
+  .arena-medal[data-metal="silver"] {
+    --medal-face: var(--metal-silver);
+    --medal-lip: var(--metal-silver-lip);
+  }
+  .arena-medal[data-metal="bronze"] {
+    --medal-face: var(--metal-bronze);
+    --medal-lip: var(--metal-bronze-lip);
+  }
+  .arena-medal__num {
+    position: relative;
+    font-family: var(--font-display);
+    font-stretch: 72%;
+    font-weight: 800;
+    font-size: calc(var(--medal-size) * 0.5);
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    /* Optical centring: figures sit a hair high in the line box. */
+    translate: 0 0.04em;
+  }
+  .arena-medal[data-metal] .arena-medal__num {
+    text-shadow: 0 1px 0 rgb(255 255 255 / 0.45);
+  }
+
+  /* ------------------------------------------------------------- Podium -- */
+
+  /* Three chunky blocks, 2 · 1 · 3 (DOM stays in rank order for readers),
+     with medal trims. Medal metals are material constants. */
+  .arena-podium {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    align-items: end;
+    gap: 10px;
+    /* Wider than this and the blocks turn into slabs; it centres instead
+       (width: 100% so auto margins never shrink it inside a flex parent). */
+    width: 100%;
+    max-width: 34rem;
+    margin: 0 auto;
+    padding: 0;
+    list-style: none;
+  }
+  .arena-podium[data-count="2"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    max-width: 24rem;
+    margin-inline: auto;
+  }
+  .arena-podium[data-count="1"] {
+    grid-template-columns: minmax(0, 12rem);
+    justify-content: center;
+  }
+  .arena-podium__spot {
+    grid-row: 1;
+    min-width: 0;
+  }
+  @media (prefers-color-scheme: dark) {
+    .arena-podium__block {
+      --block-bevel: rgb(255 255 255 / 0.07);
+    }
+  }
+  .on-board .arena-podium__block {
+    --block-bevel: rgb(255 255 255 / 0.07);
+  }
+  .arena-podium__spot[data-place="1"] {
+    --medal: var(--metal-gold);
+    --medal-lip: var(--metal-gold-lip);
+    --block-h: 124px;
+    grid-column: 2;
+  }
+  .arena-podium__spot[data-place="2"] {
+    --medal: var(--metal-silver);
+    --medal-lip: var(--metal-silver-lip);
+    --block-h: 96px;
+    grid-column: 1;
+  }
+  .arena-podium__spot[data-place="3"] {
+    --medal: var(--metal-bronze);
+    --medal-lip: var(--metal-bronze-lip);
+    --block-h: 76px;
+    grid-column: 3;
+  }
+  .arena-podium[data-count="1"] .arena-podium__spot {
+    grid-column: 1;
+  }
+  @media (min-width: 768px) {
+    .arena-podium__spot[data-place="1"] {
+      --block-h: 144px;
+    }
+    .arena-podium__spot[data-place="2"] {
+      --block-h: 112px;
+    }
+    .arena-podium__spot[data-place="3"] {
+      --block-h: 88px;
+    }
+  }
+
+  .arena-podium__hit {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 44px;
+    border-radius: 18px;
+    color: inherit;
+    text-decoration: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  a.arena-podium__hit {
+    cursor: pointer;
+  }
+  a.arena-podium__hit:focus-visible {
+    outline-offset: 4px;
+  }
+
+  .arena-podium__head {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    max-width: 100%;
+    margin-bottom: 8px;
+    text-align: center;
+  }
+  .arena-podium__label {
+    max-width: 100%;
+    font-family: var(--font-display);
+    font-stretch: 85%;
+    font-weight: 700;
+    font-size: 17px;
+    line-height: 1.1;
+    color: var(--ink);
+    overflow-wrap: anywhere;
+  }
+  .arena-podium__sub {
+    max-width: 100%;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.25;
+    color: var(--muted);
+  }
+
+  .arena-podium__top {
+    position: relative;
+    display: grid;
+    place-items: center;
+    margin-bottom: 6px;
+  }
+  /* The winner stands in a little sunlight. */
+  .arena-podium__spot[data-place="1"] .arena-podium__top::before {
+    content: "";
+    position: absolute;
+    inset: -45%;
+    border-radius: 50%;
+    background: radial-gradient(
+      closest-side,
+      color-mix(in oklab, var(--amber-bright) 38%, transparent),
+      transparent
+    );
+    pointer-events: none;
+  }
+  .arena-podium__hop {
+    position: relative;
+    display: grid;
+    place-items: center;
+    transition: translate 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+  }
+
+  .arena-podium__rise {
+    display: block;
+    width: 100%;
+  }
+  .arena-podium__block {
+    --block-rise: 0px;
+    /* Lit left edge: the block's side catching the light. */
+    --block-bevel: rgb(255 255 255 / 0.22);
+    position: relative;
+    display: grid;
+    place-items: center;
+    height: var(--block-h);
+    padding-top: 12px;
+    border-radius: 16px 16px 8px 8px;
+    background: linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--medal) 16%, var(--surface)),
+      color-mix(in oklab, var(--medal) 6%, var(--surface))
+    );
+    box-shadow:
+      inset 0 0 0 1px var(--line),
+      inset 5px 0 0 var(--block-bevel),
+      inset -5px 0 0 rgb(22 20 31 / 0.05),
+      0 calc(4px - var(--block-rise)) 0 var(--lip),
+      var(--elev-ambient);
+    translate: 0 var(--block-rise);
+    transition:
+      translate 0.16s var(--ease-board),
+      box-shadow 0.16s var(--ease-board);
+  }
+  /* Medal trim: the block's top cap. */
+  .arena-podium__block::before {
+    content: "";
+    position: absolute;
+    inset: 0 0 auto;
+    height: 12px;
+    border-radius: 16px 16px 0 0;
+    background: var(--medal);
+    box-shadow: inset 0 -3px 0 var(--medal-lip);
+  }
+  /* Big extruded numeral: ink face, medal-colored depth. */
+  .arena-podium__num {
+    font-family: var(--font-display);
+    font-stretch: 72%;
+    font-weight: 800;
+    font-size: min(64px, calc(var(--block-h) * 0.5));
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    color: var(--ink);
+    text-shadow:
+      0 2px 0 var(--medal),
+      0 4px 0 var(--medal-lip);
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    a.arena-podium__hit:hover .arena-podium__hop {
+      translate: 0 -6px;
+    }
+    a.arena-podium__hit:hover .arena-podium__block {
+      --block-rise: -2px;
+    }
+  }
+  a.arena-podium__hit:active .arena-podium__block {
+    --block-rise: 3px;
+    transition-duration: 0.06s;
+  }
+
+  /* ------------------------------------------------------ Reduced motion -- */
+
+  @media (prefers-reduced-motion: reduce) {
+    button.arena-sticker:hover .arena-sticker__body {
+      animation: none;
+    }
+    .arena-stamp__puff {
+      display: none;
+    }
+    .arena-level__badge,
+    .arena-level__fill {
+      animation: none;
+      transition: none;
+    }
+    .arena-tilt__body,
+    .arena-tilt[data-tilting] .arena-tilt__body {
+      transform: none;
+      scale: none;
+      transition: none;
+    }
+    /* The flip becomes a quick crossfade: no rotation, both faces forward. */
+    .arena-tilt__flipper,
+    .arena-tilt[data-flipped] .arena-tilt__flipper,
+    .arena-tilt__face--back {
+      transform: none;
+      transition: none;
+    }
+    .arena-tilt__face {
+      transition: opacity 0.15s linear;
+    }
+    .arena-tilt[data-flipped] .arena-tilt__face--front,
+    .arena-tilt:not([data-flipped]) .arena-tilt__face--back {
+      opacity: 0;
+    }
+    .arena-tilt[data-foil] .arena-tilt__foil::after {
+      content: none;
+    }
+    .arena-flip > svg,
+    .arena-podium__hop,
+    .arena-podium__block {
+      transition: none;
+    }
+    .arena-flip:hover > svg {
+      rotate: none;
+    }
+  }
+}

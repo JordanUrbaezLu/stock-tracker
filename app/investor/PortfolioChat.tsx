@@ -1,9 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { motion } from "motion/react";
-import { RichText } from "../RichText";
-import { useSound } from "../SoundContext";
+import { RichText } from "@/app/RichText";
+import { useSound } from "@/app/SoundContext";
+import { ThinkingDots, TypingCaret } from "@/app/ui/Ai";
+import { Avatar } from "@/app/ui/Avatar";
+import { Button } from "@/app/ui/Button";
+import { Card } from "@/app/ui/Card";
+import { Chip } from "@/app/ui/Chip";
+import { Input } from "@/app/ui/Field";
+import { SectionHeader } from "@/app/ui/SectionHeader";
+import { IconSparkle } from "@/app/ui/icons";
 
 type ChatHolding = {
   symbol: string;
@@ -23,6 +31,18 @@ type ChatInvestor = {
 
 const SUGGESTIONS = ["How am I doing overall?", "How do I compare to the others?"];
 
+/** The AI's side of the thread wears the same amber sparkle coin as AiNote. */
+function AiCoin() {
+  return (
+    <span
+      aria-hidden
+      className="grid size-7 shrink-0 place-items-center rounded-full bg-amber-soft text-amber"
+    >
+      <IconSparkle size={16} strokeWidth={2} />
+    </span>
+  );
+}
+
 export function PortfolioChat({
   askerName,
   investors,
@@ -40,6 +60,7 @@ export function PortfolioChat({
   );
   const threadRef = useRef<HTMLDivElement>(null);
   const { play, startSearching, stopSearching } = useSound();
+  const headingId = useId();
 
   // Reveal the answer a few characters at a time for a live "typing" feel
   // (25ms/step), with a soft key tick every ~12 chars.
@@ -130,37 +151,26 @@ export function PortfolioChat({
   };
 
   return (
-    <section className="glass relative rounded-3xl border-fuchsia-400/15 p-5 shadow-2xl shadow-fuchsia-500/10 sm:p-6">
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
-      >
-        <div className="absolute -left-16 -top-16 h-44 w-44 rounded-full bg-fuchsia-500/15 blur-3xl" />
-      </div>
-      <div className="relative flex items-center gap-3">
-        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-linear-to-br from-cyan-400 via-fuchsia-500 to-indigo-500 text-lg shadow-lg shadow-black/30">
-          🤖
-        </span>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-            <h2 className="text-lg font-semibold leading-tight text-white">
-              Portfolio Assistant
-            </h2>
-            <span className="inline-flex items-center gap-1 rounded-full bg-fuchsia-500/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-fuchsia-200 ring-1 ring-fuchsia-400/30">
-              ✨ AI-powered
-            </span>
-          </div>
-          <p className="mt-1.5 text-[11px] leading-relaxed text-slate-400">
-            Ask the AI anything about your stock portfolio and everyone
-            else&apos;s
-          </p>
-        </div>
-      </div>
+    <Card as="section" aria-labelledby={headingId}>
+      <SectionHeader
+        id={headingId}
+        emoji="💬"
+        title="Ask the AI"
+        sub="Ask anything about your portfolio and everyone else's"
+        meta={
+          <Chip size="xs" tone="amber" icon={<IconSparkle />}>
+            AI
+          </Chip>
+        }
+      />
 
       {qa.length > 0 && (
         <div
           ref={threadRef}
-          className="relative mt-4 max-h-80 space-y-3 overflow-y-auto overscroll-contain px-0.5 pb-0.5 pt-1.5"
+          role="log"
+          aria-label="Conversation with the AI"
+          tabIndex={0}
+          className="-mx-1 flex max-h-80 flex-col gap-3 overflow-y-auto overscroll-contain rounded-2xl px-1 py-1"
         >
           {qa.map((item, i) => {
             const isTyping = !!typing && typing.index === i;
@@ -169,40 +179,30 @@ export function PortfolioChat({
             const stillTyping =
               isTyping && typing ? typing.shown < item.a.length : false;
             return (
-              <div key={i} className="space-y-1.5">
-                <p className="ml-auto w-fit max-w-[85%] rounded-2xl rounded-br-sm bg-cyan-500/15 px-3 py-1.5 text-sm text-cyan-50 ring-1 ring-cyan-400/20">
-                  {item.q}
-                </p>
-                {item.a ? (
-                  <motion.p
-                    initial={{ opacity: 0, y: 6 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="w-fit max-w-[92%] rounded-2xl rounded-bl-sm bg-white/5 px-3 py-2 text-sm leading-5 text-slate-100 ring-1 ring-white/10"
-                  >
-                    <RichText text={shown} />
-                    {stillTyping && (
-                      <span className="ml-0.5 inline-block h-3.5 w-0.5 translate-y-0.5 animate-pulse bg-fuchsia-300/90 align-middle" />
-                    )}
-                  </motion.p>
-                ) : (
-                  <div className="flex w-fit items-center gap-1.5 rounded-2xl rounded-bl-sm bg-white/5 px-3.5 py-3 ring-1 ring-white/10">
-                    <span className="sr-only">Thinking…</span>
-                    {[0, 1, 2].map((n) => (
-                      <motion.span
-                        key={n}
-                        aria-hidden
-                        className="h-1.5 w-1.5 rounded-full bg-fuchsia-300/90"
-                        animate={{ y: [0, -4, 0], opacity: [0.4, 1, 0.4] }}
-                        transition={{
-                          duration: 0.9,
-                          repeat: Infinity,
-                          delay: n * 0.15,
-                          ease: "easeInOut",
-                        }}
-                      />
-                    ))}
-                  </div>
-                )}
+              <div key={i} className="flex flex-col gap-2">
+                <div className="flex items-end justify-end gap-2">
+                  <p className="max-w-[82%] rounded-[20px] rounded-br-md bg-ink px-3.5 py-2.5 text-base leading-snug font-medium wrap-anywhere text-on-ink">
+                    {item.q}
+                  </p>
+                  <Avatar name={askerName} size={28} className="shrink-0" />
+                </div>
+                <div className="flex items-end gap-2">
+                  <AiCoin />
+                  {item.a ? (
+                    <motion.p
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="max-w-[86%] rounded-[20px] rounded-bl-md bg-surface-2 px-3.5 py-2.5 text-base leading-6 wrap-anywhere text-ink"
+                    >
+                      <RichText text={shown} />
+                      {stillTyping && <TypingCaret className="text-amber" />}
+                    </motion.p>
+                  ) : (
+                    <div className="flex h-11 items-center rounded-[20px] rounded-bl-md bg-surface-2 px-4 text-amber">
+                      <ThinkingDots />
+                    </div>
+                  )}
+                </div>
               </div>
             );
           })}
@@ -210,16 +210,17 @@ export function PortfolioChat({
       )}
 
       {qa.length === 0 && (
-        <div className="relative mt-4 flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-x-2 gap-y-3 pb-1">
           {SUGGESTIONS.map((s) => (
-            <button
+            <Button
               key={s}
-              type="button"
+              size="sm"
+              variant="secondary"
+              className="max-w-full px-3.5!"
               onClick={() => ask(s)}
-              className="cursor-pointer rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:-translate-y-0.5 hover:border-cyan-300/40 hover:text-white"
             >
               {s}
-            </button>
+            </Button>
           ))}
         </div>
       )}
@@ -229,24 +230,22 @@ export function PortfolioChat({
           e.preventDefault();
           ask(q);
         }}
-        className="relative mt-4 flex items-center gap-2"
+        className="mt-4 flex items-center gap-2 pb-1"
       >
-        <input
+        <Input
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Ask the AI about your holdings, returns, or the group…"
+          placeholder="Ask about holdings, returns, or the group…"
+          aria-label="Ask the AI a question"
           maxLength={300}
-          className="h-11 min-w-0 flex-1 rounded-full border border-white/10 bg-white/5 px-4 text-base text-white outline-none transition placeholder:text-slate-500 focus:border-cyan-300/50"
+          autoComplete="off"
+          enterKeyHint="send"
+          className="flex-1 text-ellipsis"
         />
-        <motion.button
-          type="submit"
-          disabled={loading || !q.trim()}
-          whileTap={{ scale: 0.95 }}
-          className="h-11 shrink-0 cursor-pointer rounded-full bg-linear-to-r from-cyan-500 to-fuchsia-500 px-4 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-        >
+        <Button type="submit" disabled={loading || !q.trim()}>
           Ask
-        </motion.button>
+        </Button>
       </form>
-    </section>
+    </Card>
   );
 }

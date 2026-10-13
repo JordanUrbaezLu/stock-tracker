@@ -1,0 +1,220 @@
+/* Board weather (app/ui/Weather.tsx): the scoreboard's mood layer, painted
+   behind the hero. Every moving part animates transform/opacity only (the
+   compositor's job) over static gradients, and nothing is filtered — the
+   layer costs a few composited textures, never a per-frame repaint.
+   Low opacity by design: it tints the board, it never competes with the
+   flap tiles. Reduced motion → static frames; [data-paused] (the board has
+   scrolled away) → frozen.
+
+   Re-declaring Tailwind's layer order keeps `components` above preflight even
+   if this file happens to load before globals.css. */
+@layer theme, base, components, utilities;
+
+@layer components {
+  .wx {
+    --wx-ray: color-mix(in oklab, var(--board-amber) 24%, transparent);
+    --wx-cloud: color-mix(in oklab, var(--board-muted) 20%, transparent);
+    --wx-cloud-edge: color-mix(in oklab, var(--board-muted) 9%, transparent);
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+    animation: wx-in 1.4s var(--ease-board) both;
+  }
+  .wx > * {
+    position: absolute;
+  }
+  .wx[data-paused],
+  .wx[data-paused] * {
+    animation-play-state: paused;
+  }
+
+  /* ------------------------------------------------------------ Sunny -- */
+
+  /* A low sun just off the top-right corner: a hot core plus a wide wash. */
+  .wx__glow {
+    inset: 0;
+    background:
+      radial-gradient(
+        circle at 100% 0%,
+        color-mix(in oklab, var(--board-amber) 28%, transparent) 0,
+        transparent min(200px, 45%)
+      ),
+      radial-gradient(
+        ellipse 72% 95% at 100% 0%,
+        color-mix(in oklab, var(--board-amber) 15%, transparent) 0%,
+        color-mix(in oklab, var(--board-amber) 5%, transparent) 45%,
+        transparent 76%
+      );
+  }
+
+  /* Soft rays: two repeating conics with different periods (so the spacing
+     never looks ruled), centred on the corner and faded by a radial mask.
+     The mask is radial about the element's own centre, so rotating the whole
+     layer keeps it in place — the spin is a pure compositor rotation. */
+  .wx__rays {
+    top: 0;
+    right: 0;
+    width: clamp(560px, 100vw, 1080px);
+    aspect-ratio: 1;
+    translate: 50% -50%;
+    background:
+      repeating-conic-gradient(from 0deg, transparent 0deg, var(--wx-ray) 3.5deg, transparent 7deg 15deg),
+      repeating-conic-gradient(from 6deg, transparent 0deg, var(--wx-ray) 2.5deg, transparent 5deg 23deg);
+    -webkit-mask-image: radial-gradient(closest-side, #000 6%, rgb(0 0 0 / 0.5) 42%, transparent 100%);
+    mask-image: radial-gradient(closest-side, #000 6%, rgb(0 0 0 / 0.5) 42%, transparent 100%);
+    opacity: 0.5;
+    animation: wx-spin 150s linear infinite;
+  }
+
+  /* A few four-point glints drifting up out of the light. */
+  .wx__sparkle {
+    right: var(--x);
+    top: var(--y);
+    width: var(--s);
+    aspect-ratio: 1;
+    background: color-mix(in oklab, var(--board-amber) 55%, var(--board-ink));
+    clip-path: polygon(50% 0, 61% 39%, 100% 50%, 61% 61%, 50% 100%, 39% 61%, 0 50%, 39% 39%);
+    opacity: 0;
+    animation: wx-twinkle var(--d) ease-in-out var(--delay) infinite;
+  }
+
+  /* ----------------------------------------------------------- Cloudy -- */
+
+  .wx__veil {
+    inset: 0;
+    background: linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--board-muted) 9%, transparent),
+      transparent 80%
+    );
+  }
+
+  /* Each haze bank is three overlapping puffs; the banks drift at different
+     speeds so the sky never visibly loops. Every puff's ellipse stays inside
+     its bank's box — a gradient cut off by the box edge reads as a slab. */
+  .wx__haze {
+    width: var(--w);
+    height: var(--h);
+    background:
+      radial-gradient(28% 40% at 30% 58%, var(--wx-cloud), var(--wx-cloud-edge) 45%, transparent),
+      radial-gradient(30% 44% at 52% 46%, var(--wx-cloud), var(--wx-cloud-edge) 45%, transparent),
+      radial-gradient(24% 38% at 74% 60%, var(--wx-cloud), var(--wx-cloud-edge) 45%, transparent);
+    animation: wx-drift var(--d) ease-in-out infinite alternate;
+  }
+  .wx__haze--1 {
+    --w: 76%;
+    --h: 46%;
+    --d: 46s;
+    --dx: 9%;
+    top: -12%;
+    left: -18%;
+  }
+  .wx__haze--2 {
+    --w: 64%;
+    --h: 42%;
+    --d: 58s;
+    --dx: -12%;
+    top: 22%;
+    right: -22%;
+  }
+  .wx__haze--3 {
+    --w: 92%;
+    --h: 48%;
+    --d: 70s;
+    --dx: 7%;
+    bottom: -22%;
+    left: 6%;
+  }
+
+  /* ------------------------------------------------------------ Rainy -- */
+
+  /* Cooler light from above. */
+  .wx__tint {
+    inset: 0;
+    background: linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--pop-blue) 15%, transparent),
+      color-mix(in oklab, var(--pop-blue) 5%, transparent) 55%,
+      transparent
+    );
+  }
+
+  /* Fine streaks from a tiled SVG (irregular, unlike a ruled gradient). The
+     layer overhangs by one tile up and right and slides exactly one tile
+     down-left per cycle — along the streaks' own slant (96:360 = 136:510),
+     so the loop is seamless and the motion is a transform, not a repaint.
+     Two depths at different sizes/speeds keep the tiling from reading. */
+  .wx__rain {
+    left: 0;
+    right: calc(-1 * var(--tw));
+    top: calc(-1 * var(--th));
+    bottom: 0;
+    background-size: var(--tw) var(--th);
+    animation: wx-fall var(--d) linear infinite;
+  }
+  .wx__rain--far {
+    --tw: 96px;
+    --th: 360px;
+    --d: 1.9s;
+    opacity: 0.32;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='96' height='360'><g fill='none' stroke='%23D6D2EE' stroke-width='1.1' stroke-linecap='round'><path d='M70 20l-6.93 26' stroke-opacity='.9'/><path d='M30 70l-4.8 18' stroke-opacity='.6'/><path d='M88 120l-5.87 22' stroke-opacity='.8'/><path d='M52 165l-8 30'/><path d='M16 215l-5.33 20' stroke-opacity='.7'/><path d='M78 250l-4.27 16' stroke-opacity='.55'/><path d='M40 290l-6.4 24' stroke-opacity='.85'/><path d='M64 330l-3.73 14' stroke-opacity='.6'/></g></svg>");
+  }
+  .wx__rain--near {
+    --tw: 136px;
+    --th: 510px;
+    --d: 1.45s;
+    opacity: 0.4;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='136' height='510'><g fill='none' stroke='%23E4E0F5' stroke-width='1.5' stroke-linecap='round'><path d='M100 30l-9.6 36'/><path d='M40 110l-7.47 28' stroke-opacity='.7'/><path d='M120 200l-10.67 40' stroke-opacity='.85'/><path d='M70 290l-8 30' stroke-opacity='.6'/><path d='M20 370l-9.07 34' stroke-opacity='.8'/><path d='M96 440l-6.93 26' stroke-opacity='.65'/></g></svg>");
+  }
+
+  /* -------------------------------------------------------- Keyframes -- */
+
+  @keyframes wx-in {
+    from {
+      opacity: 0;
+    }
+  }
+  @keyframes wx-spin {
+    to {
+      rotate: 360deg;
+    }
+  }
+  @keyframes wx-twinkle {
+    0%,
+    100% {
+      opacity: 0;
+      transform: translate(0, 0) scale(0.3) rotate(0deg);
+    }
+    45% {
+      opacity: 0.85;
+      transform: translate(-4px, -9px) scale(1) rotate(45deg);
+    }
+    70% {
+      opacity: 0.45;
+      transform: translate(-6px, -13px) scale(0.75) rotate(70deg);
+    }
+  }
+  @keyframes wx-drift {
+    to {
+      translate: var(--dx) 0;
+    }
+  }
+  @keyframes wx-fall {
+    to {
+      translate: calc(-1 * var(--tw)) var(--th);
+    }
+  }
+
+  /* Static frames: the same sky, holding still. */
+  @media (prefers-reduced-motion: reduce) {
+    .wx,
+    .wx * {
+      animation: none;
+    }
+    .wx__sparkle {
+      opacity: 0.55;
+      transform: rotate(45deg) scale(0.85);
+    }
+  }
+}

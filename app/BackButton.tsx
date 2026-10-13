@@ -1,13 +1,15 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { motion } from "motion/react";
 import { useSound } from "./SoundContext";
+import { IconChevronLeft } from "./ui/icons";
+import "./ui/primitives.css";
 
 /**
  * Goes to the previous page (real browser history) instead of always jumping
  * home. Falls back to "/" when there's no in-app history to go back to (e.g. a
- * shared deep link opened in a fresh tab).
+ * shared deep link opened in a fresh tab). A chunky pill key built from
+ * tokens, so it reads on the board and in the hall alike.
  */
 export function BackButton({ className }: { className?: string }) {
   const router = useRouter();
@@ -23,16 +25,22 @@ export function BackButton({ className }: { className?: string }) {
   };
 
   return (
-    <motion.button
+    <button
       type="button"
       onClick={onClick}
-      whileTap={{ scale: 0.95 }}
+      data-variant="secondary"
+      data-live=""
       className={
         className ??
-        "inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3.5 py-1.5 text-sm font-semibold text-cyan-100 transition hover:-translate-y-0.5 hover:border-cyan-300/50 hover:text-white sm:px-4"
+        "ui-key group relative inline-flex h-11 shrink-0 cursor-pointer items-center gap-1 rounded-full pr-4 pl-2.5 text-[15px] font-bold [--key-lip-size:3px]"
       }
     >
-      ← Back
-    </motion.button>
+      <IconChevronLeft
+        size={20}
+        strokeWidth={2.5}
+        className="transition-transform duration-200 ease-board motion-safe:group-hover:-translate-x-0.5"
+      />
+      Back
+    </button>
   );
 }

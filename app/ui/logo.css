@@ -1,0 +1,106 @@
+/* CompanyLogo (app/CompanyLogo.tsx): a white rounded-square chip with a
+   hairline edge; monogram fallback in the board's condensed type.
+
+   Re-declaring Tailwind's layer order keeps `components` above preflight even
+   if this file happens to load before globals.css. */
+@layer theme, base, components, utilities;
+
+@keyframes logo-chip-in {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+}
+
+@layer components {
+  .logo-chip {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    flex: none;
+    vertical-align: middle;
+  }
+
+  button.logo-chip {
+    border: 0;
+    padding: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    transition: transform 200ms var(--ease-board);
+  }
+  /* Small marks still get a ≥44px hit box (--logo-hit is a negative inset). */
+  button.logo-chip::after {
+    content: "";
+    position: absolute;
+    inset: var(--logo-hit, 0px);
+  }
+  @media (hover: hover) {
+    button.logo-chip:hover {
+      transform: translateY(-2px);
+    }
+  }
+  button.logo-chip:active {
+    transform: scale(0.94);
+  }
+
+  .logo-chip__face {
+    position: relative;
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 100%;
+    border-radius: inherit;
+    overflow: hidden;
+    background: #fff;
+    transition: background-color 200ms ease-out;
+    animation: logo-chip-in 400ms var(--ease-board)
+      backwards;
+    animation-delay: var(--logo-delay, 0ms);
+  }
+  /* Hairline drawn above the image (an inset shadow on the face itself would
+     be painted over by the <img>). */
+  .logo-chip__face::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 1px var(--line);
+    pointer-events: none;
+  }
+  /* Light/white marks (e.g. QQQ) are invisible on white — seat them on the board. */
+  .logo-chip__face--dark {
+    background: var(--board);
+  }
+
+  .logo-chip__img {
+    display: block;
+    width: 100%;
+    height: 100%;
+    max-width: none;
+    object-fit: cover;
+  }
+
+  .logo-chip__face--mono {
+    background: var(--surface-2);
+    color: var(--ink);
+    font-family: var(--font-display);
+    font-stretch: 72%;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.01em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .logo-chip__face {
+      animation: none;
+    }
+    button.logo-chip {
+      transition: none;
+    }
+  }
+}

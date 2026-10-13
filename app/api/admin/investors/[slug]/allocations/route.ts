@@ -14,6 +14,43 @@ function normalizeNumber(value: unknown): number | null {
   return Number.isFinite(num) ? num : null;
 }
 
+function roundCents(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/** How a new purchase was paid for ("Paid with" in the admin form). */
+type FundedBy = "new" | "proceeds";
+
+/** undefined = not specified (legacy callers); null = invalid value. */
+function parseFundedBy(value: unknown): FundedBy | undefined | null {
+  if (value === undefined || value === null || value === "") return undefined;
+  const normalized = typeof value === "string" ? value.trim().toLowerCase() : "";
+  return normalized === "new" || normalized === "proceeds" ? normalized : null;
+}
+
+/**
+ * The investor's `originalAmountInvested` override, read the way the
+ * portfolio route reads it (any finite number counts), or null when they're
+ * on the auto-sum.
+ */
+function readOverride(value: unknown): number | null {
+  if (value === undefined || value === null) return null;
+  return normalizeNumber(value);
+}
+
+/** The portfolio route's auto-sum of contributed cash: every allocation's
+ *  invested amount (legacy `amount` accepted), symbol-less rows skipped. */
+function autoSumInvested(
+  allocations: Array<{ symbol?: unknown; invested?: unknown; amount?: unknown }>,
+): number {
+  return allocations.reduce((sum, allocation) => {
+    if (!String(allocation?.symbol ?? "").trim()) return sum;
+    const raw = allocation.invested ?? allocation.amount;
+    const value = raw === undefined || raw === null ? null : normalizeNumber(raw);
+    return sum + (value ?? 0);
+  }, 0);
+}
+
 /**
  * Validate via Alpaca's asset registry (tradable + active) — covers ETFs like
  * TQQQ/VOO/QQQ that Finnhub's quote endpoint returned c=0 for, which used to
@@ -58,17 +95,28 @@ export async function POST(
     typeof body?.dateInvested === "string" && body.dateInvested
       ? body.dateInvested
       : new Date().toISOString();
+  // "Paid with": new money from outside the club, or proceeds from a sale.
+  // Omitted = legacy behavior (contributed total untouched).
+  const fundedBy = parseFundedBy(body?.fundedBy);
   console.log("[admin/allocations] POST", {
     slug,
     symbol,
     invested,
     shares,
     dateInvested,
+    fundedBy,
   });
 
   if (!symbol || invested == null || invested <= 0 || shares == null || shares <= 0) {
     return NextResponse.json(
       { error: "Symbol, invested amount, and shares are required and must be positive." },
+      { status: 400 },
+    );
+  }
+
+  if (fundedBy === null) {
+    return NextResponse.json(
+      { error: 'Paid with must be "new" (new money) or "proceeds" (money from a sale).' },
       { status: 400 },
     );
   }
@@ -92,7 +140,23 @@ export async function POST(
       return NextResponse.json({ error: "Investor not found." }, { status: 404 });
     }
 
-    const allocations = investors[investorIndex].allocations ?? [];
+    const investor = investors[investorIndex];
+    const allocations = investor.allocations ?? [];
+
+    // Keep "total contributed" (the real external cash) right in the same
+    // write, so new money never leaves a stale override behind:
+    // - new money: bump an existing override by the amount (the auto-sum
+    //   already picks the new allocation up on its own);
+    // - money from a sale: freeze the auto-sum as it stands BEFORE this buy,
+    //   so reinvested proceeds aren't counted as contributed a second time
+    //   (an existing override already excludes them).
+    const override = readOverride(investor.originalAmountInvested);
+    if (fundedBy === "new" && override !== null) {
+      investor.originalAmountInvested = roundCents(override + invested);
+    } else if (fundedBy === "proceeds" && override === null) {
+      investor.originalAmountInvested = roundCents(autoSumInvested(allocations));
+    }
+
     const allocation = {
       id: randomUUID(),
       symbol,
@@ -101,14 +165,19 @@ export async function POST(
       dateInvested,
     };
     allocations.push(allocation);
-    investors[investorIndex].allocations = allocations;
+    investor.allocations = allocations;
 
     await collection.updateOne(
       { _id: doc._id },
       { $set: { investors } },
     );
 
-    return NextResponse.json({ ok: true, allocation });
+    return NextResponse.json({
+      ok: true,
+      allocation,
+      // The investor's contributed override after this add (null = auto-sum).
+      originalAmountInvested: readOverride(investor.originalAmountInvested),
+    });
   } catch (error) {
     console.error("Add allocation failed", error);
     return NextResponse.json(

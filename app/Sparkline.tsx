@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
-import type { CSSProperties } from "react";
+import { useEffect, useId, useRef, type CSSProperties } from "react";
 import { useSound } from "./SoundContext";
+import { compactMoney } from "./ui/format";
+import "./ui/spark.css";
 
 type Point = { time: number; value: number };
 
@@ -23,20 +24,18 @@ type Props = {
    *  last real point (times after `points`). Extends the x-axis to the right and
    *  drops a "now" divider at the boundary. */
   forecast?: Point[];
+  /** ms before the line draws in (the tip pulse follows) — lets a hero chart
+   *  wait for the flaps to settle. Default 0. */
+  delay?: number;
 };
 
 const PAD = 4;
-const FORECAST_COLOR = "#a78bfa"; // violet — distinct from price (green/red) + S&P (slate)
-
-function compactMoney(n: number): string {
-  const abs = Math.abs(n);
-  if (abs >= 1000) {
-    return `$${(n / 1000).toLocaleString("en-US", {
-      maximumFractionDigits: 1,
-    })}k`;
-  }
-  return `$${n.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
-}
+// Matches the draw-in in spark.css; the pulse waits for the line to finish
+// drawing so the two motions don't compete.
+const DRAW_MS = 900;
+const PULSE_MS = 5094; // ~5.1s per pulse
+const SWEEP = 0.4; // ~2s of travel, then it rests at the tip and fades
+const FADE_END = 0.54;
 
 function axisDate(epochSeconds: number, spanDays: number): string {
   const d = new Date(epochSeconds * 1000);
@@ -49,7 +48,8 @@ function axisDate(epochSeconds: number, spanDays: number): string {
 /**
  * Lightweight dependency-free SVG sparkline. The line/area live in an SVG with
  * preserveAspectRatio="none" (so it stretches), while axis labels are rendered
- * as HTML so they never distort.
+ * as HTML so they never distort. The line draws itself in left → right on
+ * mount and whenever the series changes, with the area fading in behind it.
  *
  * An EKG-style pulse — a round glowing ball — sweeps along the line every few
  * seconds. It's a positioned HTML element animated through the real data points
@@ -71,6 +71,7 @@ export function Sparkline({
   showAxes = false,
   benchmark,
   forecast,
+  delay = 0,
 }: Props) {
   const id = useId();
   const ballRef = useRef<HTMLSpanElement>(null);
@@ -101,7 +102,7 @@ export function Sparkline({
     if (n < 2) return;
 
     // Scale to the SAME min/max the line uses — across the portfolio, the
-    // benchmark overlay, AND the forecast — so the pulse tracks the green line.
+    // benchmark overlay, AND the forecast — so the pulse tracks the line.
     const benchVals = benchKey ? benchKey.split(",").map(Number) : [];
     const fcastVals = forecastKey ? forecastKey.split(",").map(Number) : [];
     const scaleVals = vals.concat(benchVals, fcastVals);
@@ -113,15 +114,12 @@ export function Sparkline({
     // and rests at the last real point ("now"), not the forecast's far edge.
     const total = n + fcastVals.length;
     const denom = total > 1 ? total - 1 : 1;
-    const duration = 5094; // ~5.1s per pulse (spaced out by +1.5s)
-    const sweep = 0.4; // ~1s of travel, then it rests at the tip and fades
-    const fadeEnd = 0.54;
 
     const frames: Keyframe[] = vals.map((v, i) => {
       const x = (i / denom) * 100;
       const y = PAD + (1 - (v - mn) / rng) * usable;
       return {
-        offset: (i / (n - 1)) * sweep,
+        offset: (i / (n - 1)) * SWEEP,
         left: `${x}%`,
         top: `${(y / height) * 100}%`,
         opacity: 1,
@@ -135,50 +133,71 @@ export function Sparkline({
     const lastY = PAD + (1 - (vals[n - 1] - mn) / rng) * usable;
     const lastLeft = `${((n - 1) / denom) * 100}%`;
     const lastTop = `${(lastY / height) * 100}%`;
-    frames.push({ offset: fadeEnd, left: lastLeft, top: lastTop, opacity: 0 });
+    frames.push({ offset: FADE_END, left: lastLeft, top: lastTop, opacity: 0 });
     frames.push({ offset: 1, left: lastLeft, top: lastTop, opacity: 0 });
 
+    // The pulse waits for the line to finish drawing.
+    const drawn = DRAW_MS + Math.max(0, delay);
     const anim = el.animate(frames, {
-      duration,
+      duration: PULSE_MS,
+      delay: drawn,
       iterations: Infinity,
       easing: "linear",
     });
 
+    // A whisper tick each time the pulse reaches the tip of the line. It's
+    // scheduled from the animation's own clock (not a free-running interval),
+    // so it stays on the beat after off-screen pauses. Muted audio is a no-op.
+    let visible = true;
+    let tickTimer: number | undefined;
+    const tip = SWEEP * PULSE_MS;
+    const scheduleTick = () => {
+      window.clearTimeout(tickTimer);
+      const now = Number(anim.currentTime ?? 0);
+      let wait: number;
+      if (now < drawn) {
+        wait = drawn - now + tip;
+      } else {
+        const local = (now - drawn) % PULSE_MS;
+        wait = local < tip ? tip - local : PULSE_MS - local + tip;
+      }
+      // The timeline only advances per frame; never double-tick one sweep.
+      if (wait < 100) wait += PULSE_MS;
+      tickTimer = window.setTimeout(() => {
+        if (visible) play("pulse");
+        scheduleTick();
+      }, wait);
+    };
+
     // Pause the pulse (and skip its tick) whenever the chart is off-screen —
     // swiped-away carousel slides and scrolled-off cards then do zero per-frame
     // work, which keeps sliding/scrolling smooth.
-    let visible = true;
     const host = el.parentElement ?? el;
     const io =
       typeof IntersectionObserver !== "undefined"
         ? new IntersectionObserver(
             ([entry]) => {
               visible = entry.isIntersecting;
-              if (visible) anim.play();
-              else anim.pause();
+              if (visible) {
+                anim.play();
+                scheduleTick();
+              } else {
+                anim.pause();
+                window.clearTimeout(tickTimer);
+              }
             },
             { threshold: 0 },
           )
         : null;
     io?.observe(host);
-
-    // A whisper tick each time the pulse reaches the tip of the line, synced to
-    // the sweep so the sound matches the motion. Muted/locked audio is a no-op.
-    let tickTimer: number | undefined;
-    const startTick = window.setTimeout(() => {
-      if (visible) play("pulse");
-      tickTimer = window.setInterval(() => {
-        if (visible) play("pulse");
-      }, duration);
-    }, sweep * duration);
+    scheduleTick();
 
     return () => {
       anim.cancel();
       io?.disconnect();
-      window.clearTimeout(startTick);
-      if (tickTimer) window.clearInterval(tickTimer);
+      window.clearTimeout(tickTimer);
     };
-  }, [valuesKey, benchKey, forecastKey, height, play]);
+  }, [valuesKey, benchKey, forecastKey, height, delay, play]);
 
   if (clean.length < 2) return null;
 
@@ -190,8 +209,8 @@ export function Sparkline({
   const width = 100;
   const usable = height - PAD * 2;
   // Combined index axis: history occupies [0 .. clean.length-1], the forecast
-  // continues at [clean.length ..]. With no forecast this collapses to the
-  // original i/(clean.length-1) spacing — identical to before.
+  // continues at [clean.length ..]. With no forecast this collapses to plain
+  // i/(clean.length-1) spacing.
   const total = clean.length + forecastClean.length;
   const denom = total > 1 ? total - 1 : 1;
   const xAt = (idx: number) => (idx / denom) * width;
@@ -227,64 +246,68 @@ export function Sparkline({
 
   // Fill only under the historical line (stop at "now").
   const area = `${line} L ${lastHist[0].toFixed(2)} ${height} L 0 ${height} Z`;
-  const stroke = positive ? "#34d399" : "#fb7185";
-  const fillTop = positive ? "rgba(52,211,153,0.28)" : "rgba(251,113,133,0.28)";
+  const gradientId = `spark-${id}`;
+  const viewBox = `0 0 ${width} ${height}`;
 
-  const chart = (
+  const frame = (
     <svg
-      className="block w-full"
-      width="100%"
-      height={fill ? "100%" : height}
-      viewBox={`0 0 ${width} ${height}`}
+      className="spark-chart__svg spark-chart__frame"
+      viewBox={viewBox}
       preserveAspectRatio="none"
       aria-hidden
     >
-      <defs>
-        <linearGradient id={`spark-${id}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={fillTop} />
-          <stop offset="100%" stopColor="rgba(8,11,26,0)" />
-        </linearGradient>
-      </defs>
-      {/* Faint top/bottom gridlines */}
       <line
+        className="spark-chart__grid"
         x1="0"
         y1={PAD}
         x2={width}
         y2={PAD}
-        stroke="rgba(148,163,184,0.14)"
-        strokeWidth={1}
         vectorEffect="non-scaling-stroke"
       />
       <line
+        className="spark-chart__grid"
         x1="0"
         y1={height - PAD}
         x2={width}
         y2={height - PAD}
-        stroke="rgba(148,163,184,0.14)"
-        strokeWidth={1}
         vectorEffect="non-scaling-stroke"
       />
-      <path d={area} fill={`url(#spark-${id})`} stroke="none" />
       {/* "Now" divider where the real data ends and the forecast begins. */}
       {forecastLine && (
         <line
+          className="spark-chart__now"
           x1={lastHist[0]}
           y1={PAD}
           x2={lastHist[0]}
           y2={height - PAD}
-          stroke="rgba(148,163,184,0.35)"
-          strokeWidth={1}
-          strokeDasharray="2 2"
           vectorEffect="non-scaling-stroke"
         />
       )}
+    </svg>
+  );
+
+  const chart = (
+    <svg
+      // Keyed by the series so new data re-runs the draw-in.
+      key={`${valuesKey}|${benchKey}|${forecastKey}`}
+      className="spark-chart__svg spark-chart__data"
+      width="100%"
+      height={fill ? "100%" : height}
+      viewBox={viewBox}
+      preserveAspectRatio="none"
+      aria-hidden
+    >
+      <defs>
+        <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" className="spark-chart__stop" stopOpacity={0.22} />
+          <stop offset="100%" className="spark-chart__stop" stopOpacity={0} />
+        </linearGradient>
+      </defs>
+      <path className="spark-chart__area" d={area} fill={`url(#${gradientId})`} />
       {benchLine && (
         <path
+          className="spark-chart__bench"
           d={benchLine}
-          fill="none"
-          stroke="rgba(148,163,184,0.65)"
-          strokeWidth={1.25}
-          strokeDasharray="3 3"
           strokeLinejoin="round"
           strokeLinecap="round"
           vectorEffect="non-scaling-stroke"
@@ -292,21 +315,17 @@ export function Sparkline({
       )}
       {forecastLine && (
         <path
+          className="spark-chart__forecast"
           d={forecastLine}
-          fill="none"
-          stroke={FORECAST_COLOR}
           strokeWidth={strokeWidth}
-          strokeDasharray="4 3"
           strokeLinejoin="round"
           strokeLinecap="round"
           vectorEffect="non-scaling-stroke"
         />
       )}
       <path
-        className="spark-line"
+        className="spark-chart__line"
         d={line}
-        fill="none"
-        stroke={stroke}
         strokeWidth={strokeWidth}
         strokeLinejoin="round"
         strokeLinecap="round"
@@ -315,21 +334,20 @@ export function Sparkline({
     </svg>
   );
 
-  const pulse = (
-    <span
-      ref={ballRef}
-      aria-hidden
-      className="spark-pulse"
-      style={{ "--c": stroke } as CSSProperties}
-    />
-  );
+  const pulse = <span ref={ballRef} aria-hidden className="spark-chart__pulse" />;
+  const tone = positive ? "gain" : "loss";
+  const delayVar = { "--spark-delay": `${Math.max(0, delay)}ms` } as CSSProperties;
 
   if (!showAxes) {
     return (
+      // Positioning comes from spark.css's components layer, so a caller's
+      // utility (e.g. `absolute inset-0` for a background chart) wins.
       <div
-        className={`relative ${className ?? ""}`}
-        style={fill ? undefined : { height }}
+        className={`spark-chart spark-chart__plot ${className ?? ""}`}
+        data-tone={tone}
+        style={fill ? delayVar : { ...delayVar, height }}
       >
+        {frame}
         {chart}
         {pulse}
       </div>
@@ -349,26 +367,24 @@ export function Sparkline({
     // the chart row grows, the SVG (height 100%) follows, and the date axis
     // stays pinned to the bottom.
     <div
-      className={`${fill ? "flex min-h-0 flex-1 flex-col " : ""}${className ?? ""}`}
+      className={`spark-chart spark-axes ${fill ? "spark-axes--fill " : ""}${className ?? ""}`}
+      data-tone={tone}
+      style={delayVar}
     >
-      <div className={fill ? "flex min-h-0 flex-1" : "flex"}>
-        {/* Y axis: amount range */}
-        <div
-          className="flex flex-col justify-between pr-1.5 text-right text-[9px] font-medium tabular-nums text-slate-500"
-          style={fill ? undefined : { height }}
-        >
-          <span>{compactMoney(max)}</span>
-          <span>{compactMoney(min)}</span>
-        </div>
-        <div className="relative flex-1" style={fill ? undefined : { height }}>
-          {chart}
-          {pulse}
-        </div>
+      {/* Y axis: amount range */}
+      <div className="spark-axes__y" style={fill ? undefined : { height }}>
+        <span className="spark-axes__label">{compactMoney(max)}</span>
+        <span className="spark-axes__label">{compactMoney(min)}</span>
+      </div>
+      <div className="spark-chart__plot" style={fill ? undefined : { height }}>
+        {frame}
+        {chart}
+        {pulse}
       </div>
       {/* X axis: date range */}
-      <div className="mt-1 flex justify-between pl-9 text-[9px] font-medium text-slate-500">
-        <span>{axisDate(clean[0].time, spanDays)}</span>
-        <span>{axisDate(lastTime, spanDays)}</span>
+      <div className="spark-axes__x">
+        <span className="spark-axes__label">{axisDate(clean[0].time, spanDays)}</span>
+        <span className="spark-axes__label">{axisDate(lastTime, spanDays)}</span>
       </div>
     </div>
   );

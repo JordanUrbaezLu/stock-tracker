@@ -1,0 +1,320 @@
+/* AppShell chrome (app/ui/AppShell.tsx). Layout lives in Tailwind utilities;
+   this file only holds what utilities can't express cleanly: safe-area-aware
+   gutters, the overscroll backstop, board texture + jersey tint, the nav
+   pills' lips, and the brand-mark flap.
+   Unlayered on purpose — none of these classes share an element+property with
+   a utility, so there is nothing for the cascade to fight over. */
+
+/* ------------------------------------------------------------ Gutters ---- */
+
+/* Gutters live on each band's content container (not the page root) so the
+   board and tab-bar backgrounds stay full-bleed under a landscape notch. */
+.qb-container {
+  width: 100%;
+  max-width: 1200px;
+  margin-inline: auto;
+  padding-left: max(1rem, env(safe-area-inset-left));
+  padding-right: max(1rem, env(safe-area-inset-right));
+}
+.qb-container--narrow {
+  max-width: 520px;
+}
+@media (min-width: 768px) {
+  .qb-container {
+    padding-left: max(1.5rem, env(safe-area-inset-left));
+    padding-right: max(1.5rem, env(safe-area-inset-right));
+  }
+}
+@media (min-width: 1024px) {
+  .qb-container {
+    padding-left: max(2rem, env(safe-area-inset-left));
+    padding-right: max(2rem, env(safe-area-inset-right));
+  }
+}
+
+/* ----------------------------------------------------------- BrandBar ---- */
+
+.qb-brandbar {
+  transition: box-shadow 0.25s var(--ease-board);
+}
+
+/* Board-colored backstop above the bar: iOS rubber-band overscroll at the top
+   reveals board, not hall. Sits outside the document so it never scrolls. */
+.qb-brandbar::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  bottom: 100%;
+  height: 100vh;
+  background: var(--board);
+  pointer-events: none;
+}
+
+/* Once the board has scrolled away the bar floats over the hall. Shadows
+   are violet-tinted like the hall's own (globals --elev-*). */
+.qb-brandbar[data-stuck="true"] {
+  box-shadow: 0 12px 28px -18px rgb(46 38 110 / 0.55);
+}
+
+.qb-tabbar {
+  box-shadow: 0 -12px 28px -22px rgb(46 38 110 / 0.35);
+}
+
+/* The active tab is a small amber key: a solid lip under the pill. */
+.qb-tabpill {
+  box-shadow:
+    0 3px 0 var(--amber-lip),
+    inset 0 1px 0 rgb(255 255 255 / 0.35);
+}
+
+/* Desktop nav pill: it clips its label copy, so the lip is drawn inside. */
+.qb-navpill {
+  box-shadow:
+    inset 0 -3px 0 var(--amber-lip),
+    inset 0 1px 0 rgb(255 255 255 / 0.35);
+}
+
+@media (prefers-color-scheme: dark) {
+  .qb-brandbar[data-stuck="true"] {
+    box-shadow: 0 12px 28px -16px rgb(0 0 0 / 0.75);
+  }
+  .qb-tabbar {
+    box-shadow: none;
+  }
+}
+
+/* -------------------------------------------------------- Board header ---- */
+
+/* The board sits a hair above the hall in light mode; dark mode relies on
+   the amber hairline alone (DESIGN: dark cards drop shadows). */
+.qb-board {
+  box-shadow: 0 26px 40px -36px rgb(46 38 110 / 0.7);
+}
+@media (prefers-color-scheme: dark) {
+  .qb-board {
+    box-shadow: none;
+  }
+}
+
+/* Decorative layers get their own clipped box so the board root never clips
+   hero popovers (lookup suggestions) or hall elements overlapping its edge. */
+.qb-board__fx {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.qb-board__mood {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  transition: opacity 0.9s var(--ease-board);
+}
+.qb-board__mood--up {
+  background: radial-gradient(
+    ellipse 75% 120% at 0% 0%,
+    color-mix(in oklab, var(--gain) 15%, transparent) 0%,
+    color-mix(in oklab, var(--gain) 5%, transparent) 45%,
+    transparent 72%
+  );
+}
+.qb-board__mood--down {
+  background: radial-gradient(
+    ellipse 75% 120% at 0% 0%,
+    color-mix(in oklab, var(--loss) 15%, transparent) 0%,
+    color-mix(in oklab, var(--loss) 5%, transparent) 45%,
+    transparent 72%
+  );
+}
+.qb-board[data-mood="up"] .qb-board__mood--up,
+.qb-board[data-mood="down"] .qb-board__mood--down {
+  opacity: 1;
+  animation: qb-fade-in 1.2s var(--ease-board) both;
+}
+
+/* Matte print grain: opaque grayscale fractal noise under soft-light (overlay
+   all but vanishes on a near-black base). The filter must interpolate in
+   sRGB — the linearRGB default centers the noise near 0.73 and visibly lifts
+   the board color; centered at 0.5 the mean stays on the token (measured). */
+.qb-board__grain {
+  position: absolute;
+  inset: 0;
+  opacity: 0.5;
+  mix-blend-mode: soft-light;
+  background-size: 160px 160px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='g' color-interpolation-filters='sRGB'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/><feColorMatrix values='0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0.33 0.33 0.33 0 0 0 0 0 0 1'/></filter><rect width='100%' height='100%' filter='url(%23g)'/></svg>");
+}
+
+/* Jersey tint (investor pages): the player's color washed in from the
+   top-left, opposite the weather's sun, plus a stripe along the bottom edge
+   — under the 1px amber hairline's spot, so the board ends in their color. */
+.qb-board__tint {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(
+    ellipse 85% 120% at 0% 0%,
+    color-mix(in oklab, var(--board-tint) 22%, transparent) 0%,
+    color-mix(in oklab, var(--board-tint) 8%, transparent) 45%,
+    transparent 76%
+  );
+  animation: qb-fade-in 1.2s var(--ease-board) both;
+}
+.qb-board__stripe {
+  position: absolute;
+  inset-inline: 0;
+  bottom: -1px;
+  height: 3px;
+  background: var(--board-tint);
+  pointer-events: none;
+}
+
+/* Nobody can see the board once it's under the bar: stop the tape too
+   (the weather freezes itself via its own [data-paused]). */
+.qb-board[data-paused] .qb-ticker__track {
+  animation-play-state: paused;
+}
+
+/* Sits one brand-bar height above the board's bottom edge: once it scrolls
+   off the top, the board is fully under the sticky bar. */
+.qb-board__sentinel {
+  position: absolute;
+  left: 0;
+  bottom: calc(var(--brandbar-h) + env(safe-area-inset-top));
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+}
+
+@keyframes qb-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* ---------------------------------------------------------- BrandMark ---- */
+
+/* A tiny split-flap unit. Layers, back to front: static top half (glyph top),
+   static bottom half (blank), then the two moving flaps — the blank top flap
+   falls away, and the glyph's bottom half swings down onto the seam.
+   The hinge notches are real cut-outs (a mask), so whatever sits behind the
+   mark shows through them — board or hall. */
+.qb-mark {
+  --qb-mark-size: 32px;
+  --qb-notch: calc(var(--qb-mark-size) * 0.08);
+  position: relative;
+  display: inline-block;
+  flex: none;
+  width: var(--qb-mark-size);
+  height: var(--qb-mark-size);
+  overflow: hidden;
+  border-radius: calc(var(--qb-mark-size) * 0.24);
+  background: var(--tile);
+  perspective: calc(var(--qb-mark-size) * 2.5);
+  box-shadow: inset 0 0 0 1px rgb(243 238 225 / 0.07);
+  -webkit-mask:
+    radial-gradient(circle at 0 50%, transparent var(--qb-notch), #000 calc(var(--qb-notch) + 0.5px)),
+    radial-gradient(circle at 100% 50%, transparent var(--qb-notch), #000 calc(var(--qb-notch) + 0.5px));
+  -webkit-mask-composite: source-in;
+  mask:
+    radial-gradient(circle at 0 50%, transparent var(--qb-notch), #000 calc(var(--qb-notch) + 0.5px)),
+    radial-gradient(circle at 100% 50%, transparent var(--qb-notch), #000 calc(var(--qb-notch) + 0.5px));
+  mask-composite: intersect;
+}
+
+.qb-mark__half,
+.qb-mark__flap {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 50%;
+  overflow: hidden;
+  backface-visibility: hidden;
+}
+.qb-mark__half--top,
+.qb-mark__flap--top {
+  top: 0;
+  background: linear-gradient(180deg, color-mix(in oklab, var(--tile-top) 88%, var(--board-ink)), var(--tile-top));
+}
+.qb-mark__half--bottom,
+.qb-mark__flap--bottom {
+  bottom: 0;
+  background: linear-gradient(180deg, var(--tile), color-mix(in oklab, var(--tile) 82%, var(--seam)));
+}
+
+.qb-mark__glyph {
+  position: absolute;
+  left: 0;
+  width: 100%;
+  height: 200%;
+  color: var(--board-amber);
+}
+.qb-mark__half--top .qb-mark__glyph,
+.qb-mark__flap--top .qb-mark__glyph {
+  top: 0;
+}
+.qb-mark__half--bottom .qb-mark__glyph,
+.qb-mark__flap--bottom .qb-mark__glyph {
+  bottom: 0;
+  /* Lower flap catches less light. */
+  opacity: 0.86;
+}
+
+.qb-mark__seam {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: max(1px, calc(var(--qb-mark-size) * 0.04));
+  transform: translateY(-50%);
+  background: var(--seam);
+}
+
+.qb-mark__flap--top {
+  transform-origin: 50% 100%;
+  animation: qb-flap-fall 0.2s cubic-bezier(0.55, 0.06, 0.68, 0.19)
+    var(--qb-mark-delay, 0.25s) both;
+}
+.qb-mark__flap--bottom {
+  transform-origin: 50% 0;
+  animation: qb-flap-land 0.32s cubic-bezier(0.34, 1.56, 0.64, 1)
+    calc(var(--qb-mark-delay, 0.25s) + 0.2s) both;
+}
+.qb-mark[data-replay] {
+  --qb-mark-delay: 0s;
+}
+
+@keyframes qb-flap-fall {
+  from {
+    transform: rotateX(0deg);
+  }
+  to {
+    transform: rotateX(-90deg);
+  }
+}
+@keyframes qb-flap-land {
+  from {
+    transform: rotateX(90deg);
+  }
+  to {
+    transform: rotateX(0deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .qb-mark__flap--top {
+    display: none;
+  }
+  .qb-mark__flap--bottom {
+    animation: none;
+    transform: none;
+  }
+  .qb-board[data-mood] .qb-board__mood,
+  .qb-board__tint {
+    animation: none;
+  }
+  .qb-brandbar,
+  .qb-board__mood {
+    transition: none;
+  }
+}

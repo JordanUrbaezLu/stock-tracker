@@ -1,17 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { motion, AnimatePresence } from "motion/react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useSound } from "./SoundContext";
 import { celebrate } from "./confetti";
-import { lockBodyScroll, unlockBodyScroll } from "./scrollLock";
-import {
-  getBadges,
-  badgeToneClasses,
-  type BadgeStatus,
-  type BadgeInvestor,
-} from "./badges";
+import { getBadges, type BadgeStatus, type BadgeInvestor } from "./badges";
+import { Button } from "./ui/Button";
+import { Card } from "./ui/Card";
+import { Chip } from "./ui/Chip";
+import { Modal } from "./ui/Modal";
+import { ProgressBar } from "./ui/ProgressBar";
+import { SectionHeader } from "./ui/SectionHeader";
+import { Sticker } from "./ui/Sticker";
+import { cx } from "./ui/cx";
+import { IconCheck, IconLock } from "./ui/icons";
 
 function readIds(key: string): string[] {
   try {
@@ -31,11 +32,11 @@ function writeIds(key: string, ids: string[]) {
 }
 
 /**
- * Achievement shelf for an investor. Badges are derived from the live portfolio
- * data. Newly-earned badges get a one-time confetti + chime and wear a "NEW"
- * tag that persists across visits until the viewer taps the badge to read what
- * it means — tapping opens a description popup and acknowledges (clears) the
- * NEW tag for that badge.
+ * The sticker book: an investor's achievements. Stickers are derived from
+ * the live portfolio data. Newly-earned ones get a one-time confetti + chime
+ * and wear a "NEW" burst that persists across visits until the viewer taps
+ * the sticker to read what it means — tapping opens a detail popup and
+ * acknowledges (clears) the NEW burst for that sticker.
  */
 export function Badges({
   investor,
@@ -44,18 +45,18 @@ export function Badges({
   investor: BadgeInvestor;
   allInvestors: BadgeInvestor[];
 }) {
-  // The full catalog with earned status — earned ones are shown in color, the
-  // rest are shown locked/dimmed so the viewer sees what's left to chase.
+  // The full catalog with earned status — earned ones are stuck in the book,
+  // the rest are empty "?" slots so the viewer sees what's left to chase.
   const badges = getBadges(investor, allInvestors);
   const earnedIds = badges.filter((b) => b.earned).map((b) => b.id);
   const { play } = useSound();
   const [newIds, setNewIds] = useState<Set<string>>(new Set());
+  // `selected` outlives `open` so the popup keeps its content while it
+  // animates out.
   const [selected, setSelected] = useState<BadgeStatus | null>(null);
-  // Portal the popup to <body> only after mount (avoids SSR document access).
-  const [mounted, setMounted] = useState(false);
+  const [open, setOpen] = useState(false);
   const handled = useRef(false);
-
-  useEffect(() => setMounted(true), []);
+  const headingId = useId();
 
   const ackedKey = `badges_acked_${investor.slug}`;
   const celebratedKey = `badges_celebrated_${investor.slug}`;
@@ -82,6 +83,7 @@ export function Badges({
     (badge: BadgeStatus) => {
       play("open");
       setSelected(badge);
+      setOpen(true);
       // Acknowledge: clear this badge's NEW tag and remember it across visits.
       setNewIds((prev) => {
         if (!prev.has(badge.id)) return prev;
@@ -96,166 +98,113 @@ export function Badges({
     [play],
   );
 
+  // Modal owns Escape, the scrim tap and the body scroll lock.
   const close = useCallback(() => {
     play("close");
-    setSelected(null);
+    setOpen(false);
   }, [play]);
-
-  // While the popup is open: dismiss on Escape and lock body scroll so the page
-  // behind it doesn't move.
-  useEffect(() => {
-    if (!selected || typeof document === "undefined") return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
-    };
-    window.addEventListener("keydown", onKey);
-    lockBodyScroll();
-    return () => {
-      window.removeEventListener("keydown", onKey);
-      unlockBodyScroll();
-    };
-  }, [selected, close]);
 
   if (badges.length === 0) return null;
 
-  return (
-    // Outer wrapper carries the NEW badge so it can sit on the card's border,
-    // above the section's rounded edge.
-    <div className="relative">
-      <span className="absolute -top-2 right-5 z-20 inline-flex items-center rounded-full bg-linear-to-r from-rose-500 to-orange-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white shadow-md shadow-rose-500/40 ring-1 ring-white/20">
-        New
-      </span>
-      <section className="glass relative rounded-3xl p-5 shadow-2xl shadow-black/30 sm:p-6">
-        {/* Decor clipping lives on this wrapper so the card itself can stay unclipped. */}
-        <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]">
-          <div className="pointer-events-none absolute -right-16 -top-16 h-44 w-44 rounded-full bg-amber-400/10 blur-3xl" />
-        </div>
-      <div className="relative mb-3 flex items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 text-lg font-semibold text-white">
-          <span aria-hidden>🎖️</span> Achievements
-        </h2>
-        <span className="rounded-full bg-white/5 px-2.5 py-0.5 text-xs font-semibold text-slate-300 ring-1 ring-white/10">
-          {earnedIds.length} / {badges.length} earned
-        </span>
-      </div>
-      <div className="relative flex flex-wrap gap-2">
-        {badges.map((b, i) => (
-          <motion.button
-            key={b.id}
-            type="button"
-            onClick={() => openBadge(b)}
-            initial={{ opacity: 0, scale: 0.8, y: 6 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            transition={{ delay: i * 0.04, type: "spring", stiffness: 320, damping: 22 }}
-            whileHover={{ y: -2 }}
-            whileTap={{ scale: 0.94 }}
-            aria-label={`${b.label}${b.earned ? "" : " (locked)"} — ${b.description}`}
-            // Button is a taller invisible hit area (≥44px); the pill inside
-            // keeps its compact visual size.
-            className="grid min-h-11 cursor-pointer place-items-center"
-          >
-            <span
-              className={`relative flex items-center gap-1.5 rounded-full px-3 py-1.5 ring-1 transition ${
-                b.earned
-                  ? `bg-linear-to-br ${badgeToneClasses(b.tone)} hover:brightness-110`
-                  : "bg-white/4 text-slate-500 ring-white/10 hover:bg-white/7"
-              }`}
-            >
-              <span
-                className="text-base leading-none"
-                aria-hidden
-                style={b.earned ? undefined : { filter: "grayscale(1)", opacity: 0.55 }}
-              >
-                {b.emoji}
-              </span>
-              <span className="text-xs font-semibold">{b.label}</span>
-              {b.earned && newIds.has(b.id) && (
-                <span className="absolute -right-1.5 -top-1.5 animate-pulse rounded-full bg-rose-500 px-1.5 py-px text-[8px] font-bold uppercase tracking-wider text-white shadow-sm shadow-black/40">
-                  New
-                </span>
-              )}
-            </span>
-          </motion.button>
-        ))}
-      </div>
-      </section>
+  const total = badges.length;
+  const earned = earnedIds.length;
+  const left = total - earned;
 
-      {mounted &&
-        createPortal(
-          <AnimatePresence>
-            {selected && (
-              <motion.div
-                className="fixed inset-0 z-50 flex items-start justify-center px-6 pt-[max(1.5rem,env(safe-area-inset-top))] pb-6 sm:items-center"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={close}
-              >
-            <div
-              aria-hidden
-              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+  return (
+    <section aria-labelledby={headingId}>
+      <SectionHeader
+        id={headingId}
+        emoji="🏅"
+        title="Sticker book"
+        sub={`${earned} of ${total} collected`}
+      />
+      <Card>
+        <div className="@container">
+          <div className="flex items-center gap-3">
+            <ProgressBar
+              value={total ? earned / total : 0}
+              tone="gain"
+              size="lg"
+              label={`${earned} of ${total} stickers collected`}
+              className="min-w-0 flex-1"
             />
-            <motion.div
-              role="dialog"
-              aria-modal="true"
-              aria-label={selected.label}
-              onClick={(e) => e.stopPropagation()}
-              initial={{ scale: 0.85, y: 20, opacity: 0 }}
-              animate={{ scale: 1, y: 0, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              transition={{ type: "spring", stiffness: 300, damping: 24 }}
-              // Solid (opaque) card — only the overlay behind it is transparent.
-              style={{ background: "linear-gradient(160deg, #141a30, #0a0e1d)" }}
-              className="relative z-10 max-h-[85dvh] w-full max-w-xs overflow-y-auto overscroll-contain rounded-3xl border border-white/10 p-6 text-center shadow-2xl shadow-black/50"
-            >
-              <div
-                className={`mx-auto grid h-16 w-16 place-items-center rounded-2xl text-3xl ring-1 ${
-                  selected.earned
-                    ? `bg-linear-to-br ${badgeToneClasses(selected.tone)}`
-                    : "bg-white/5 ring-white/10"
-                }`}
+            <p className="shrink-0 text-[14px] leading-none font-semibold text-muted">
+              {left === 0 ? "All collected!" : `${left} to go`}
+            </p>
+          </div>
+
+          <ul className="mt-5 grid grid-cols-2 gap-x-2 gap-y-5 @[16rem]:grid-cols-3 @[30rem]:grid-cols-5">
+            {badges.map((b, i) => (
+              <li
+                key={b.id}
+                className={cx(
+                  "flex min-w-0 flex-col items-center gap-2 text-center",
+                  // A lone last sticker sits in the middle of its row, not
+                  // stranded on the left (3-col: 10 → 3·3·3·1; 2-col: odd).
+                  i === total - 1 && total % 3 === 1 && "@[16rem]:@max-[30rem]:col-start-2",
+                  i === total - 1 && total % 2 === 1 && "@max-[16rem]:col-span-2",
+                )}
               >
+                <Sticker
+                  emoji={b.emoji}
+                  tone={b.tone}
+                  earned={b.earned}
+                  isNew={b.earned && newIds.has(b.id)}
+                  seed={b.id}
+                  size={56}
+                  label={`${b.label}${b.earned ? "" : " (locked)"} — ${b.description}`}
+                  onClick={() => openBadge(b)}
+                />
                 <span
-                  aria-hidden
-                  style={
-                    selected.earned
-                      ? undefined
-                      : { filter: "grayscale(1)", opacity: 0.55 }
-                  }
+                  className={cx(
+                    "max-w-full text-[14px] leading-tight font-semibold text-balance",
+                    b.earned ? "text-ink" : "text-muted",
+                  )}
                 >
-                  {selected.emoji}
+                  {b.label}
                 </span>
-              </div>
-              <h3 className="mt-4 text-lg font-bold text-white">
-                {selected.label}
-              </h3>
-              <span
-                className={`mt-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ring-1 ${
-                  selected.earned
-                    ? "bg-emerald-500/15 text-emerald-300 ring-emerald-400/30"
-                    : "bg-white/5 text-slate-400 ring-white/10"
-                }`}
-              >
-                {selected.earned ? "✓ Earned" : "🔒 Locked"}
-              </span>
-              <p className="mt-2 text-sm leading-relaxed text-slate-300">
-                {selected.earned
-                  ? selected.description
-                  : `How to earn: ${selected.description}`}
-              </p>
-              <button
-                type="button"
-                onClick={close}
-                className="mt-5 w-full cursor-pointer rounded-full bg-white/10 px-4 py-2.5 text-sm font-semibold text-white ring-1 ring-white/15 transition hover:bg-white/15"
-              >
-                Got it
-              </button>
-                </motion.div>
-              </motion.div>
+              </li>
+            ))}
+          </ul>
+
+          <p className="type-label mt-5 text-center">Tap a sticker to see how it&apos;s earned.</p>
+        </div>
+      </Card>
+
+      <Modal
+        open={open}
+        onClose={close}
+        size="sm"
+        title={selected?.label ?? ""}
+        footer={
+          <Button fullWidth onClick={close}>
+            Got it
+          </Button>
+        }
+      >
+        {selected && (
+          <div className="flex flex-col items-center gap-4 pt-3 pb-1 text-center">
+            <Sticker
+              key={selected.id}
+              emoji={selected.emoji}
+              tone={selected.tone}
+              earned={selected.earned}
+              seed={selected.id}
+              size={96}
+            />
+            {selected.earned ? (
+              <Chip tone="gain" icon={<IconCheck />}>
+                Earned
+              </Chip>
+            ) : (
+              <Chip icon={<IconLock />}>Locked</Chip>
             )}
-          </AnimatePresence>,
-          document.body,
+            <p className="text-base leading-relaxed text-pretty text-ink-2">
+              {selected.earned ? selected.description : `How to earn: ${selected.description}`}
+            </p>
+          </div>
         )}
-    </div>
+      </Modal>
+    </section>
   );
 }

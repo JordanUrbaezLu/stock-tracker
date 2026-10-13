@@ -39,15 +39,19 @@ export type BadgeInvestor = {
   holdings: BadgeHolding[];
 };
 
+// Badge tokens (globals.css) flip with the theme and on the board, so one
+// set reads everywhere. Soft tint + a firm tinted edge, so a badge holds
+// its own on the periwinkle hall as well as on white cards.
 const TONE_CLASSES: Record<BadgeTone, string> = {
-  gold: "from-amber-400/20 to-yellow-500/10 text-amber-200 ring-amber-400/30",
-  green: "from-emerald-400/20 to-teal-500/10 text-emerald-200 ring-emerald-400/30",
-  blue: "from-sky-400/20 to-blue-500/10 text-sky-200 ring-sky-400/30",
-  purple: "from-fuchsia-400/20 to-purple-500/10 text-fuchsia-200 ring-fuchsia-400/30",
-  rose: "from-rose-400/20 to-pink-500/10 text-rose-200 ring-rose-400/30",
+  gold: "bg-badge-gold-soft text-badge-gold border-badge-gold/35",
+  green: "bg-badge-green-soft text-badge-green border-badge-green/35",
+  blue: "bg-badge-blue-soft text-badge-blue border-badge-blue/35",
+  purple: "bg-badge-purple-soft text-badge-purple border-badge-purple/35",
+  rose: "bg-badge-rose-soft text-badge-rose border-badge-rose/35",
 };
 
-/** Tailwind classes (use with `bg-linear-to-br` + `ring-1`) for a badge tone. */
+/** Tailwind classes (background, text, border color) for a badge tone — pair
+ *  with a `border` width class. */
 export function badgeToneClasses(tone: BadgeTone): string {
   return TONE_CLASSES[tone];
 }
