@@ -253,11 +253,19 @@ for (const inv of doc.investors) {
     if (days.length < 2) continue;
     const [sym, shares] = key.split("|");
     const sameInvested = new Set(group.map((a) => a.invested)).size === 1;
-    // Each buy's implied price vs its day's close: one buy noticeably off
-    // points at pasted shares; all close to 0% suggests a legit repeat buy.
-    const offs = group
-      .map((a) => {
-        const check = buyPrice(a);
+    // The brokerage fills fractional shares to 3 decimals, so two similar-sized
+    // buys of one fund often land on the same share count — that alone is not
+    // suspicious. Warn only with corroboration: the amounts are identical too
+    // (duplicate entry, or a nominal amount typed instead of the fill), or one
+    // buy's implied price sits noticeably off that day's close (pasted shares).
+    const checks = group.map((a) => ({ a, check: buyPrice(a) }));
+    const SHARES_TOLERANCE = 0.025;
+    const priceOff = checks.some(
+      ({ check }) => check && Math.abs(check.off) > SHARES_TOLERANCE,
+    );
+    if (!sameInvested && !priceOff) continue;
+    const offs = checks
+      .map(({ a, check }) => {
         if (!check) return `${dayKey(a.dateInvested) ?? "?"} n/a`;
         return `${check.day} ${check.off >= 0 ? "+" : ""}${(check.off * 100).toFixed(1)}%`;
       })
