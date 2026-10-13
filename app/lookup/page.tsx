@@ -11,11 +11,27 @@ import {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { motion } from "motion/react";
-import { CompanyLogo } from "../CompanyLogo";
-import { Sparkline } from "../Sparkline";
-import { RichText } from "../RichText";
-import { useSound } from "../SoundContext";
-import { BackButton } from "../BackButton";
+import { CompanyLogo } from "@/app/CompanyLogo";
+import { RichText } from "@/app/RichText";
+import { useSound } from "@/app/SoundContext";
+import { Sparkline } from "@/app/Sparkline";
+import { ThinkingDots, TypingCaret } from "@/app/ui/Ai";
+import { AppShell } from "@/app/ui/AppShell";
+import { Button } from "@/app/ui/Button";
+import { Card, CardHeader } from "@/app/ui/Card";
+import { ChartLegend, type ChartLegendItem } from "@/app/ui/ChartLegend";
+import { Chip } from "@/app/ui/Chip";
+import { cx } from "@/app/ui/cx";
+import { Delta } from "@/app/ui/Delta";
+import { Input } from "@/app/ui/Field";
+import { FlapDisplay } from "@/app/ui/FlapDisplay";
+import { formatCurrency, formatPercent, toneText } from "@/app/ui/format";
+import { IconChevronDown, IconSearch, IconSparkle } from "@/app/ui/icons";
+import { Rise } from "@/app/ui/Reveal";
+import { Segmented } from "@/app/ui/Segmented";
+import { Skeleton } from "@/app/ui/Skeleton";
+import { Stamp, type StampTone } from "@/app/ui/Stamp";
+import { EmptyState } from "@/app/ui/States";
 
 type Quote = {
   symbol: string;
@@ -45,23 +61,6 @@ const SPANS: {
   { key: "1y", short: "1Y", label: "1 year", title: "1-year", days: 365 },
   { key: "5y", short: "5Y", label: "5 years", title: "5-year", days: 1826 },
 ];
-
-function fmtPct(v: number | null | undefined) {
-  if (v == null || Number.isNaN(v)) return "—";
-  return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
-}
-
-function fmtMoney(v: number) {
-  return `$${Math.abs(v).toLocaleString("en-US", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })}`;
-}
-
-function toneText(v: number | null | undefined) {
-  if (v == null || v === 0) return "text-slate-300";
-  return v > 0 ? "text-emerald-400" : "text-rose-400";
-}
 
 /** % return between `days` ago and the latest close. */
 function returnOver(history: HistoryPoint[], days: number): number | null {
@@ -133,6 +132,25 @@ function sanitizeSymbol(raw: string) {
     .replace(/[^A-Z0-9.\-]/g, "");
 }
 
+
+/** One-tap tickers on the empty board — same submit path as the form. */
+const QUICK_PICKS = ["AAPL", "NVDA", "VOO", "TQQQ"] as const;
+
+/** What the board shows before a price lands: the tiles flip from here. */
+const BLANK_PRICE = "$---.--";
+
+/** The forecast's direction as a rubber-stamp verdict. */
+const VERDICT: Record<Prediction["direction"], { word: string; tone: StampTone }> = {
+  up: { word: "Bullish", tone: "gain" },
+  down: { word: "Bearish", tone: "loss" },
+  flat: { word: "Steady", tone: "amber" },
+};
+
+/** Card titles in the hall read like the section headers: condensed caps.
+ *  Size is set where it is used — two text-[…] utilities on one element don't
+ *  override by order. */
+const CARD_TITLE = "type-display uppercase tracking-[0.01em] text-ink";
+
 function LookupContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -167,6 +185,9 @@ function LookupContent() {
   const [span, setSpan] = useState<SpanKey>("6m");
   // Controls the type-ahead dropdown — only shown while the input is focused.
   const [focused, setFocused] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
+  const analysisRef = useRef<HTMLDivElement>(null);
 
   const fetchHistory = useCallback(async (symbol: string) => {
     setHistoryLoading(true);
@@ -303,6 +324,8 @@ function LookupContent() {
     // chart's timespan, so flipping 3M/6M/1Y/5Y never refetches.
     if (analysisFor.current === quote.symbol) return;
     analysisFor.current = quote.symbol;
+    const symbol = quote.symbol;
+    let settled = false;
     const controller = new AbortController();
     setTake(null);
     setAnalysisDone(false);
@@ -360,12 +383,18 @@ function LookupContent() {
       })
       .catch(() => null)
       .finally(() => {
+        // An aborted request (card collapsed, new ticker) never finished.
+        if (controller.signal.aborted) return;
+        settled = true;
         setAnalysisDone(true);
         stopSearching();
       });
     return () => {
       controller.abort();
       stopSearching();
+      // Collapsed mid-request: drop the claim so reopening fetches again
+      // instead of sticking on "No analysis available right now."
+      if (!settled && analysisFor.current === symbol) analysisFor.current = null;
     };
   }, [analysisOpen, quote, history, startSearching, stopSearching]);
 
@@ -390,363 +419,326 @@ function LookupContent() {
     play((perf.spanReturn ?? 0) >= 0 ? "coin" : "tap");
   }, [quote, perf, play]);
 
-  return (
-    <div className="app-backdrop min-h-dvh overflow-x-clip pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-slate-100">
-      <main className="stagger-children mx-auto flex min-h-dvh max-w-2xl flex-col gap-5 px-4 pb-[max(1.5rem,calc(env(safe-area-inset-bottom)+1.5rem))] pt-[max(1.5rem,env(safe-area-inset-top))] sm:px-6 sm:pb-[max(2rem,calc(env(safe-area-inset-bottom)+1.5rem))] sm:pt-[max(2rem,env(safe-area-inset-top))]">
-        <header className="glass relative rounded-2xl px-3 py-3 shadow-xl shadow-black/30 sm:px-5">
-          <div className="relative flex items-center justify-between gap-2 sm:gap-3">
-            <div className="flex min-w-0 items-center gap-2.5 sm:gap-3">
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-linear-to-br from-cyan-400 via-fuchsia-500 to-indigo-500 text-base">
-                🔍
-              </span>
-              <div className="min-w-0 leading-tight">
-                <p className="gradient-text truncate text-base font-bold tracking-tight">
-                  Ticker Lookup
-                </p>
-                <p className="truncate text-[10px] uppercase tracking-widest text-slate-400 sm:tracking-[0.2em]">
-                  Performance &amp; trend
-                </p>
-              </div>
-            </div>
-            <BackButton />
-          </div>
-        </header>
+  // Type-ahead — shown while the input is focused and the current text isn't
+  // the already-loaded symbol. Gating on the loaded symbol (instead of
+  // toggling `focused` manually) keeps the popover from getting stuck hidden
+  // when the input keeps DOM focus after a search.
+  const showSuggestions =
+    focused &&
+    results.length > 0 &&
+    !loading &&
+    sanitizeSymbol(ticker) !== quote?.symbol;
 
-        <section className="glass relative rounded-3xl p-4 shadow-2xl shadow-black/30 sm:p-6">
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-0 overflow-hidden rounded-[calc(1.5rem-1px)]"
-          >
-            <div className="absolute -right-20 -top-24 h-56 w-56 rounded-full bg-cyan-500/10 blur-3xl" />
-          </div>
-          <form
-            onSubmit={handleSubmit}
-            className="relative flex items-center gap-2 sm:gap-3"
-          >
-            <label className="sr-only" htmlFor="ticker">
-              Ticker symbol
-            </label>
-            <input
+  // Close shortly after focus leaves — unless it moved into the popover
+  // (keyboard users tabbing to a suggestion) or back to the input.
+  const closeSuggestionsSoon = () =>
+    window.setTimeout(() => {
+      const el = document.activeElement;
+      if (el === inputRef.current || suggestionsRef.current?.contains(el)) return;
+      setFocused(false);
+    }, 120);
+
+  // On a phone the analysis card sits low on the page, so its answer would
+  // open under the fold: bring the card up under the brand bar instead. Higher
+  // up (desktop rail, tall screens) it stays put.
+  const revealAnalysis = () => {
+    const el = analysisRef.current;
+    if (!el || el.getBoundingClientRect().top < window.innerHeight * 0.4) return;
+    const calm = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    requestAnimationFrame(() =>
+      el.scrollIntoView({ block: "start", behavior: calm ? "auto" : "smooth" }),
+    );
+  };
+
+  const todayPct = quote ? parseFloat(quote.changePercent) : NaN;
+  const hasChart = !!perf && perf.slice.length > 1;
+  const chartUp = (perf?.spanReturn ?? 0) >= 0;
+  const legend: ChartLegendItem[] = [
+    { label: "Price", kind: "line", tone: chartUp ? "gain" : "loss" },
+  ];
+  if (forecastSlice.length > 0) {
+    legend.push({ label: "3-month forecast", kind: "dashed", tone: "amber" });
+  }
+  const verdict = prediction ? VERDICT[prediction.direction] ?? VERDICT.flat : null;
+
+  const hero = (
+    // Extra bottom room: the hall's first block overlaps the board's edge.
+    <div className="grid gap-5 pb-8 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-start lg:gap-12">
+      <div className="min-w-0">
+        <h1 className="type-eyebrow text-amber">Look up a stock</h1>
+        <form
+          onSubmit={handleSubmit}
+          className="relative mt-3 flex items-start gap-2 sm:gap-3"
+        >
+          <label className="sr-only" htmlFor="ticker">
+            Ticker symbol
+          </label>
+          <div className="relative min-w-0 flex-1">
+            <IconSearch
+              aria-hidden
+              className="pointer-events-none absolute left-4 top-1/2 z-10 -translate-y-1/2 text-muted"
+            />
+            <Input
+              ref={inputRef}
               id="ticker"
               name="ticker"
               value={ticker}
-              onChange={(e) => setTicker(e.target.value)}
+              onChange={(e) => {
+                setTicker(e.target.value);
+                setFocused(true);
+              }}
               onFocus={() => setFocused(true)}
-              onBlur={() => window.setTimeout(() => setFocused(false), 120)}
+              onBlur={closeSuggestionsSoon}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setFocused(false);
+                else if (e.key === "ArrowDown" && showSuggestions) {
+                  e.preventDefault();
+                  suggestionsRef.current?.querySelector("button")?.focus();
+                }
+              }}
               autoComplete="off"
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
+              enterKeyHint="search"
               placeholder="Search a ticker (e.g. AAPL, TQQQ)"
-              className="h-12 min-w-0 flex-1 rounded-xl border border-white/10 bg-slate-950/50 px-4 text-base uppercase tracking-wide text-slate-100 outline-none transition placeholder:normal-case placeholder:tracking-normal placeholder:text-slate-500 focus:border-cyan-400/60"
+              className="pl-11 text-ellipsis uppercase tracking-wide placeholder:normal-case placeholder:tracking-normal"
             />
-            <motion.button
-              type="submit"
-              disabled={loading}
-              whileTap={{ scale: 0.96 }}
-              className="h-12 shrink-0 cursor-pointer rounded-xl bg-linear-to-r from-cyan-500 to-fuchsia-500 px-5 text-sm font-semibold text-white shadow-lg shadow-cyan-500/20 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 sm:px-6"
+          </div>
+          {/* Before the submit key in the DOM (it is absolutely placed, so
+              nothing moves): Tab from the input lands on the first
+              suggestion instead of skipping past the list and closing it. */}
+          {showSuggestions && (
+            <motion.div
+              ref={suggestionsRef}
+              role="group"
+              aria-label="Suggestions"
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.14 }}
+              onBlur={closeSuggestionsSoon}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  inputRef.current?.focus();
+                  setFocused(false);
+                  return;
+                }
+                if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+                // Arrows walk the list; Up from the first one returns to the input.
+                e.preventDefault();
+                const items = Array.from(e.currentTarget.querySelectorAll("button"));
+                const at = items.indexOf(document.activeElement as HTMLButtonElement);
+                const next = e.key === "ArrowDown" ? at + 1 : at - 1;
+                if (next < 0) inputRef.current?.focus();
+                else items[Math.min(next, items.length - 1)]?.focus();
+              }}
+              className="absolute left-0 right-0 top-full z-30 mt-3 max-h-[60dvh] overflow-y-auto overscroll-contain rounded-[20px] border border-line bg-surface p-1.5 shadow-pop"
             >
-              {loading ? "…" : "Look up"}
-            </motion.button>
-
-            {/* Type-ahead dropdown — shown while the input is focused and the
-                current text isn't the already-loaded symbol. Gating on the
-                loaded symbol (instead of toggling `focused` manually) keeps the
-                dropdown from getting stuck hidden when the input keeps DOM
-                focus after a search. */}
-            {focused &&
-              results.length > 0 &&
-              !loading &&
-              sanitizeSymbol(ticker) !== quote?.symbol && (
-              <motion.div
-                initial={{ opacity: 0, y: -6 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.14 }}
-                className="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-2xl border border-white/10 bg-slate-900/95 p-1.5 shadow-2xl shadow-black/50 backdrop-blur-xl"
-              >
-                <p className="px-2.5 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                  Suggestions
-                </p>
-                {results.slice(0, 6).map((res) => (
-                  <button
-                    key={res.symbol}
-                    type="button"
-                    onMouseDown={(e) => e.preventDefault()}
-                    onClick={() => {
-                      const symbol = sanitizeSymbol(res.symbol);
-                      setTicker(symbol);
-                      void handleSubmit(undefined, symbol);
-                    }}
-                    className="flex w-full cursor-pointer items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition hover:bg-white/5"
-                  >
-                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-white/5 text-[11px] font-bold text-cyan-100 ring-1 ring-white/10">
-                      {res.symbol.slice(0, 2)}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold text-white">
-                        {res.symbol}
-                      </span>
-                      <span className="block truncate text-[11px] text-slate-400">
-                        {res.description}
-                      </span>
-                    </span>
-                  </button>
-                ))}
-              </motion.div>
-            )}
-          </form>
-
-          {loading && (
-            <p className="relative mt-6 animate-pulse text-slate-300">
-              Contacting the market…
-            </p>
-          )}
-
-          {error && !loading && (
-            <p className="relative mt-6 text-rose-300" role="alert">
-              {error}
-            </p>
-          )}
-
-          {!quote && !error && !loading && (
-            <p className="relative mt-6 text-sm text-slate-400">
-              Search a ticker to see its performance and 6-month trend.
-            </p>
-          )}
-
-          {quote && !loading && (
-            <div className="relative mt-5 space-y-4">
-              {/* Identity + price */}
-              <div className="flex items-start gap-3">
-                <CompanyLogo
-                  symbol={quote.symbol}
-                  name={quote.name}
-                  logo={quote.logo}
-                  size={48}
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="text-lg font-bold leading-tight text-white">
-                    {quote.symbol}
-                  </p>
-                  <p className="truncate text-xs text-slate-400">
-                    {quote.name || "—"}
-                    {quote.exchange ? ` · ${quote.exchange}` : ""}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-end">
-                <span className="text-4xl font-bold tracking-tight text-white sm:text-5xl">
-                  ${quote.price.toFixed(2)}
-                </span>
-              </div>
-
-              {/* Timespan filter — selects the window for the chart and the AI
-                  read, and doubles as a per-window return tile. */}
-              <div>
-                <p className="mb-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                  Timespan
-                </p>
-                <div className="grid grid-cols-4 gap-2">
-                  {SPANS.map((s) => {
-                    const v = perf?.returns[s.key] ?? null;
-                    const active = span === s.key;
-                    return (
-                      <button
-                        key={s.key}
-                        type="button"
-                        onClick={() => {
-                          const pct = perf?.returns[s.key] ?? null;
-                          play(
-                            pct == null
-                              ? "toggle"
-                              : pct >= 500
-                                ? "gainHigh"
-                                : pct >= 50
-                                  ? "gainMid"
-                                  : pct >= 0
-                                    ? "gainLow"
-                                    : pct > -25
-                                      ? "lossLow"
-                                      : pct > -50
-                                        ? "lossMid"
-                                        : "lossHigh",
-                          );
-                          setSpan(s.key);
-                        }}
-                        aria-pressed={active}
-                        className={`cursor-pointer rounded-2xl border px-2 py-2.5 text-left transition ${
-                          active
-                            ? "border-cyan-400/40 bg-cyan-500/10 ring-1 ring-cyan-400/30"
-                            : "border-white/5 bg-white/3 hover:border-white/15 hover:bg-white/5"
-                        }`}
-                      >
-                        <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                          {s.short}
-                        </p>
-                        <p
-                          className={`mt-0.5 text-sm font-semibold ${toneText(v)}`}
-                        >
-                          {fmtPct(v)}
-                        </p>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* AI analysis — expandable; the AI read is only generated on first
-                  expand. Kept above the chart so it's ATF on mobile. A NEW badge
-                  on the border nudges first-time users to open it (which also
-                  reveals the 3-month forecast). */}
-              <div className="relative">
-                <span className="absolute -top-2 right-5 z-10 inline-flex items-center rounded-full bg-linear-to-r from-rose-500 to-orange-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white shadow-md shadow-rose-500/40 ring-1 ring-white/20">
-                  New
-                </span>
-                <div className="overflow-hidden rounded-2xl border border-fuchsia-400/20 bg-fuchsia-500/8">
+              <p className="type-eyebrow px-2.5 pb-1.5 pt-2 text-muted">Suggestions</p>
+              {results.slice(0, 6).map((res) => (
                 <button
+                  key={res.symbol}
                   type="button"
+                  onMouseDown={(e) => e.preventDefault()}
                   onClick={() => {
-                    play(analysisOpen ? "close" : "open");
-                    setAnalysisOpen((o) => !o);
+                    const symbol = sanitizeSymbol(res.symbol);
+                    inputRef.current?.focus();
+                    setTicker(symbol);
+                    void handleSubmit(undefined, symbol);
                   }}
-                  aria-expanded={analysisOpen}
-                  className="flex w-full cursor-pointer items-center gap-2 px-3 py-3 text-left transition hover:bg-fuchsia-500/5"
+                  className="flex min-h-12 w-full cursor-pointer items-center gap-3 rounded-[14px] px-2.5 py-1.5 text-left transition-colors duration-150 hover:bg-surface-2 active:bg-surface-3"
                 >
-                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-linear-to-br from-cyan-400 via-fuchsia-500 to-indigo-500 text-sm shadow-sm shadow-black/30">
-                    📊
-                  </span>
-                  <span className="min-w-0 flex-1">
-                    <span className="block text-xs font-semibold uppercase tracking-wider text-fuchsia-100">
-                      Ticker Analysis
-                    </span>
-                    <span className="block text-[11px] leading-tight text-slate-400">
-                      {analysisOpen
-                        ? "Performance, market standing & a buy/sell verdict"
-                        : "Tap for an AI take on this ticker"}
-                    </span>
-                  </span>
                   <span
                     aria-hidden
-                    className={`grid h-8 w-8 shrink-0 place-items-center rounded-full border border-white/10 bg-white/5 text-slate-200 transition-transform duration-200 ${
-                      analysisOpen ? "rotate-180" : ""
-                    }`}
+                    className="grid size-9 shrink-0 place-items-center rounded-[10px] border border-line bg-surface-3 font-mono text-[12px] font-bold text-amber"
                   >
-                    <svg
-                      width="16"
-                      height="16"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="3"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    >
-                      <path d="M6 9l6 6 6-6" />
-                    </svg>
+                    {res.symbol.slice(0, 2)}
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-[16px] font-bold leading-tight text-ink">
+                      {res.symbol}
+                    </span>
+                    <span className="block truncate text-[13px] leading-snug text-muted">
+                      {res.description}
+                    </span>
                   </span>
                 </button>
-                {analysisOpen && (
-                  <div className="px-3 pb-3">
-                    {take ? (
-                      <p className="text-sm leading-5 text-slate-100">
-                        <RichText text={take.slice(0, shown)} />
-                        {shown < take.length && (
-                          <span className="ml-0.5 inline-block h-3.5 w-0.5 translate-y-0.5 animate-pulse bg-fuchsia-300/90 align-middle" />
-                        )}
-                      </p>
-                    ) : analysisDone ? (
-                      <p className="text-sm text-slate-400">
-                        No analysis available right now.
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        <div className="flex items-center gap-2 text-sm font-medium text-fuchsia-200/90">
-                          <span
-                            aria-hidden
-                            className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-fuchsia-300/30 border-t-fuchsia-300"
-                          />
-                          Analyzing {quote.symbol}…
-                        </div>
-                        <div className="space-y-1.5 pt-0.5">
-                          <div className="skeleton h-3 w-full rounded" />
-                          <div className="skeleton h-3 w-11/12 rounded" />
-                          <div className="skeleton h-3 w-4/5 rounded" />
-                        </div>
-                      </div>
-                    )}
-                    {prediction && quote && (
-                      <div className="mt-3 rounded-xl border border-violet-400/20 bg-violet-500/8 p-2.5">
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wider text-violet-200">
-                            <span
-                              aria-hidden
-                              className="inline-block h-0 w-3.5 border-t-2 border-dashed border-violet-400"
-                            />
-                            3-Month Forecast
-                          </span>
-                          <span
-                            className={`text-sm font-bold ${toneText(
-                              prediction.m3 - quote.price,
-                            )}`}
-                          >
-                            {fmtMoney(prediction.m3)}{" "}
-                            <span className="text-[11px] font-semibold">
-                              (
-                              {fmtPct(
-                                (prediction.m3 / quote.price - 1) * 100,
-                              )}
-                              )
-                            </span>
-                          </span>
-                        </div>
-                        <p className="mt-1 text-xs leading-snug text-slate-300">
-                          {prediction.rationale}
-                        </p>
-                        <p className="mt-1.5 text-[9px] uppercase tracking-wider text-slate-500">
-                          Speculative AI projection · not financial advice
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-                </div>
-              </div>
+              ))}
+            </motion.div>
+          )}
 
-              {/* Trend chart for the selected timespan */}
-              <div className="rounded-2xl border border-white/5 bg-white/2 p-3">
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                      {activeSpan.title} trend
-                    </p>
-                    {forecastSlice.length > 0 && (
-                      <span className="inline-flex items-center gap-1 text-[9px] font-medium uppercase tracking-wider text-violet-300">
-                        <span
-                          aria-hidden
-                          className="inline-block h-0 w-3 border-t-2 border-dashed border-violet-400"
-                        />
-                        3-mo forecast
+          <Button type="submit" loading={loading} className="shrink-0">
+            Look up
+          </Button>
+        </form>
+        <p className="mt-4 hidden max-w-sm text-[15px] leading-relaxed text-muted lg:block">
+          Any US stock or fund. Type its ticker, press Look up, and the board
+          flips to today&rsquo;s price.
+        </p>
+      </div>
+
+      <div className="min-w-0">
+        {/* One line that changes with the state, so the flap never jumps. */}
+        <div className="flex min-h-[60px] items-center">
+          {loading ? (
+            <p className="flex items-center gap-3 text-[17px] font-semibold text-ink-2">
+              Contacting the market…
+              <ThinkingDots label="Loading the quote" className="text-amber" />
+            </p>
+          ) : error ? (
+            <p role="alert" className="text-[16px] font-semibold leading-snug text-loss text-pretty">
+              {error}
+            </p>
+          ) : quote ? (
+            <div className="flex min-w-0 items-center gap-3">
+              <CompanyLogo
+                symbol={quote.symbol}
+                name={quote.name}
+                logo={quote.logo}
+                size={52}
+              />
+              <div className="min-w-0">
+                <h2 className="type-display text-[32px] text-ink">{quote.symbol}</h2>
+                {/* A long fund name gives way; the exchange always shows. */}
+                <p className="mt-1 flex min-w-0 text-[15px] text-muted">
+                  <span className="truncate">{quote.name || "—"}</span>
+                  {quote.exchange ? (
+                    <span className="shrink-0 whitespace-pre"> · {quote.exchange}</span>
+                  ) : null}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-[16px] leading-snug text-muted text-pretty">
+              No stock on the board yet. Search one to flip the tiles.
+            </p>
+          )}
+        </div>
+
+        <FlapDisplay
+          value={quote ? `$${quote.price.toFixed(2)}` : BLANK_PRICE}
+          label={
+            quote
+              ? `${quote.symbol} price $${quote.price.toFixed(2)}`
+              : "No price on the board yet"
+          }
+          size="hero"
+          sound={!!quote}
+          className="mt-4"
+        />
+
+        {quote && !loading && (
+          <div className="mt-4 flex flex-col gap-2">
+            {perf && perf.change != null ? (
+              <Delta
+                variant="phrase"
+                size="xl"
+                value={perf.change}
+                suffix={`over ${activeSpan.label} (${formatPercent(perf.spanReturn, 1)})`}
+              />
+            ) : historyLoading ? (
+              <Skeleton className="h-7 w-64 max-w-full" />
+            ) : null}
+            {Number.isFinite(todayPct) && (
+              <Delta
+                variant="phrase"
+                prefix="Today:"
+                value={quote.change}
+                percent={todayPct}
+              />
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <AppShell
+      active="lookup"
+      back
+      status={loading || historyLoading ? "loading" : quote ? "live" : null}
+      hero={hero}
+    >
+      {quote && !loading ? (
+        // `relative` paints it above the board edge it overlaps.
+        <Rise
+          key={quote.symbol}
+          className="relative -mt-14 grid gap-6 lg:grid-cols-12 lg:gap-8"
+        >
+          <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-6 lg:col-span-7 xl:col-span-8">
+            {/* Timespan — picks the chart's window and doubles as a
+                per-window return readout. */}
+            <Card raised padding="none" className="order-1 min-w-0 p-1.5 lg:order-none">
+              <Segmented
+                fullWidth
+                ariaLabel="Timespan"
+                value={span}
+                onChange={(next: SpanKey) => {
+                  const pct = perf?.returns[next] ?? null;
+                  play(
+                    pct == null
+                      ? "toggle"
+                      : pct >= 500
+                        ? "gainHigh"
+                        : pct >= 50
+                          ? "gainMid"
+                          : pct >= 0
+                            ? "gainLow"
+                            : pct > -25
+                              ? "lossLow"
+                              : pct > -50
+                                ? "lossMid"
+                                : "lossHigh",
+                  );
+                  setSpan(next);
+                }}
+                options={SPANS.map((s) => {
+                  const v = perf?.returns[s.key] ?? null;
+                  return {
+                    value: s.key,
+                    label: s.short,
+                    sub: (
+                      <span className={cx("tnum", toneText(v))}>
+                        {v == null ? "—" : formatPercent(v, 1)}
                       </span>
-                    )}
-                  </div>
-                  {perf && (
-                    <p
-                      className={`text-xs font-semibold ${toneText(perf.spanReturn)}`}
-                    >
-                      {fmtPct(perf.spanReturn)}
-                      {perf.change != null
-                        ? ` (${perf.change >= 0 ? "+" : "−"}${fmtMoney(
-                            perf.change,
-                          )})`
-                        : ""}
-                    </p>
-                  )}
-                </div>
-                {historyLoading && !perf && (
-                  <p className="py-6 text-center text-sm text-slate-400">
-                    Loading price history…
-                  </p>
-                )}
-                {perf && perf.slice.length > 1 && (
+                    ),
+                  };
+                })}
+              />
+            </Card>
+
+            {/* Trend chart for the selected timespan */}
+            <Card
+              as="section"
+              aria-label={`${activeSpan.title} trend`}
+              className="order-3 min-w-0 lg:order-none"
+            >
+              <CardHeader
+                as="h2"
+                eyebrow={`${quote.symbol} price`}
+                title={
+                  <span className={cx(CARD_TITLE, "text-[22px]")}>
+                    {activeSpan.title} trend
+                  </span>
+                }
+                action={
+                  perf ? (
+                    <Delta
+                      variant="pill"
+                      size="sm"
+                      value={perf.change}
+                      percent={perf.spanReturn}
+                      decimals={1}
+                    />
+                  ) : null
+                }
+              />
+              {hasChart && perf ? (
+                <div className="flex h-[232px] flex-col gap-3 md:h-[292px]">
+                  <ChartLegend items={legend} />
                   <Sparkline
+                    key={span}
                     points={perf.slice.map((p) => ({
                       time: p.time,
                       value: p.close,
@@ -755,36 +747,255 @@ function LookupContent() {
                       time: p.time,
                       value: p.close,
                     }))}
-                    positive={(perf.spanReturn ?? 0) >= 0}
-                    height={170}
+                    positive={chartUp}
                     strokeWidth={2}
                     showAxes
+                    fill
                     className="w-full"
                   />
-                )}
-                {!historyLoading && !perf && (
-                  <p className="py-6 text-center text-sm text-slate-400">
-                    Not enough history to chart.
-                  </p>
-                )}
-              </div>
+                </div>
+              ) : (
+                <p className="py-12 text-center text-[15px] text-muted">
+                  {historyLoading
+                    ? "Loading price history…"
+                    : "Not enough history to chart."}
+                </p>
+              )}
+            </Card>
+          </div>
+
+          {/* AI analysis — expandable; the AI read is only generated on first
+              expand (which also reveals the 3-month forecast). */}
+          <div
+            ref={analysisRef}
+            className="relative order-2 min-w-0 scroll-mt-[calc(var(--shell-top,4rem)+1.75rem)] lg:order-none lg:col-span-5 xl:col-span-4"
+          >
+            {/* Pinned over the card's edge, where the old "New" tag sat. */}
+            <Chip
+              size="xs"
+              tone="amber"
+              icon={<IconSparkle size={12} />}
+              className="absolute -top-3 right-5 z-10 border border-amber/30 shadow-lip"
+            >
+              AI
+            </Chip>
+            <Card as="section" padding="sm" raised aria-labelledby="h-analysis">
+              <h2>
+                <button
+                  type="button"
+                  onClick={() => {
+                    play(analysisOpen ? "close" : "open");
+                    setAnalysisOpen((o) => !o);
+                    if (!analysisOpen) revealAnalysis();
+                  }}
+                  aria-expanded={analysisOpen}
+                  aria-controls="analysis-body"
+                  data-variant="secondary"
+                  data-live=""
+                  className="ui-key relative flex min-h-[76px] w-full cursor-pointer items-center gap-2.5 rounded-[20px] px-2.5 py-3 text-left [--key-lip-size:4px] sm:gap-3 sm:px-3"
+                >
+                  <span
+                    aria-hidden
+                    className="on-amber grid size-11 shrink-0 place-items-center rounded-[14px] bg-amber-bright text-ink shadow-lip"
+                  >
+                    <IconSparkle size={22} />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span
+                      id="h-analysis"
+                      className={cx(CARD_TITLE, "block text-[18px] min-[375px]:text-[20px]")}
+                    >
+                      <span aria-hidden>🧠 </span>Ticker analysis
+                    </span>
+                    <span className="mt-1 block text-[14px] font-medium leading-snug text-muted">
+                      {analysisOpen
+                        ? "Performance, market standing & a buy/sell verdict"
+                        : "Tap for an AI take on this ticker"}
+                    </span>
+                  </span>
+                  <span
+                    aria-hidden
+                    className={cx(
+                      "grid size-9 shrink-0 place-items-center rounded-full bg-surface-2 text-ink-2 transition-transform duration-200 ease-board motion-reduce:transition-none",
+                      analysisOpen && "rotate-180",
+                    )}
+                  >
+                    <IconChevronDown size={18} />
+                  </span>
+                </button>
+              </h2>
+
+              {analysisOpen && (
+                <div id="analysis-body" className="px-1.5 pb-1.5 pt-6 md:px-1 md:pb-1">
+                  {take ? (
+                    <>
+                      <p aria-hidden className="text-[16px] leading-7 text-ink-2">
+                        <RichText text={take.slice(0, shown)} />
+                        {shown < take.length && <TypingCaret className="text-amber" />}
+                      </p>
+                      <p className="sr-only">
+                        <RichText text={take} />
+                      </p>
+                    </>
+                  ) : analysisDone || (!historyLoading && !perf) ? (
+                    <p className="text-[15px] text-muted">
+                      No analysis available right now.
+                    </p>
+                  ) : (
+                    <div className="flex flex-col gap-3">
+                      <p className="flex items-center gap-2.5 text-[15px] font-semibold text-ink-2">
+                        <ThinkingDots
+                          label={`Analyzing ${quote.symbol}`}
+                          className="text-amber"
+                        />
+                        Analyzing {quote.symbol}…
+                      </p>
+                      <div aria-hidden className="flex flex-col gap-2">
+                        <Skeleton className="h-3.5 w-full" />
+                        <Skeleton className="h-3.5 w-11/12" />
+                        <Skeleton className="h-3.5 w-4/5" />
+                      </div>
+                    </div>
+                  )}
+
+                  {prediction && verdict && (
+                    <Rise className="mt-5 rounded-[20px] border border-amber/25 bg-amber-soft p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="type-label flex items-center gap-2 text-ink">
+                            <span
+                              aria-hidden
+                              className="inline-block h-0 w-5 shrink-0 border-t-[3px] border-dashed border-amber-bright"
+                            />
+                            3-month forecast
+                          </p>
+                          <p className="type-display mt-2.5 text-[32px] text-ink">
+                            {formatCurrency(prediction.m3)}
+                          </p>
+                          <p
+                            className={cx(
+                              "mt-1.5 text-[15px] font-bold",
+                              toneText(prediction.m3 - quote.price),
+                            )}
+                          >
+                            {formatPercent((prediction.m3 / quote.price - 1) * 100, 1)}{" "}
+                            <span className="font-medium text-muted">from today</span>
+                          </p>
+                        </div>
+                        <Stamp tone={verdict.tone} rotate={6} className="mr-1 mt-2 shrink-0">
+                          {verdict.word}
+                        </Stamp>
+                      </div>
+                      <p className="mt-3 text-[15px] leading-6 text-ink-2">
+                        {prediction.rationale}
+                      </p>
+                      <p className="mt-3 text-[12px] leading-snug text-muted">
+                        Speculative AI projection · not financial advice
+                      </p>
+                    </Rise>
+                  )}
+                </div>
+              )}
+            </Card>
+          </div>
+        </Rise>
+      ) : loading ? (
+        <div aria-hidden className="relative -mt-14 grid gap-6 lg:grid-cols-12 lg:gap-8">
+          <div className="contents lg:flex lg:min-w-0 lg:flex-col lg:gap-6 lg:col-span-7 xl:col-span-8">
+            <Card raised padding="none" className="order-1 min-w-0 p-1.5 lg:order-none">
+              <Skeleton className="h-14 rounded-[18px]" />
+            </Card>
+            <Card className="order-3 min-w-0 lg:order-none">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="mt-2 h-6 w-44" />
+              <Skeleton className="mt-5 h-[232px] rounded-2xl md:h-[292px]" />
+            </Card>
+          </div>
+          <div className="order-2 min-w-0 lg:order-none lg:col-span-5 xl:col-span-4">
+            <Card padding="sm" raised>
+              <Skeleton className="h-[76px] rounded-[20px]" />
+            </Card>
+          </div>
+        </div>
+      ) : (
+        <div className="relative -mt-14">
+          <Card raised padding="none">
+            <EmptyState
+              icon={<IconSearch />}
+              title={error ? "Try another ticker" : "Look up any stock"}
+              body={
+                error
+                  ? "Type a different ticker in the search box above."
+                  : "Search a ticker to see its price, trend, and an AI read."
+              }
+              action={
+                <div>
+                  <p className="type-label mb-3">Or tap a quick pick</p>
+                  <div className="grid grid-cols-2 gap-x-2.5 gap-y-3.5 pb-1 sm:grid-cols-4">
+                    {QUICK_PICKS.map((symbol) => (
+                      <Button
+                        key={symbol}
+                        variant="secondary"
+                        fullWidth
+                        onClick={() => {
+                          setTicker(symbol);
+                          void handleSubmit(undefined, symbol);
+                        }}
+                      >
+                        {symbol}
+                      </Button>
+                    ))}
+                  </div>
+                </div>
+              }
+            />
+          </Card>
+        </div>
+      )}
+    </AppShell>
+  );
+}
+
+/** Suspense fallback: the same shell with a skeleton board, so the page
+ *  doesn't jump when the search params resolve. */
+function LookupFallback() {
+  return (
+    <AppShell
+      active="lookup"
+      back
+      status="loading"
+      hero={
+        <div className="grid gap-5 pb-8 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-start lg:gap-12">
+          <div className="min-w-0">
+            <p className="type-eyebrow text-amber">Look up a stock</p>
+            <div className="mt-3 flex gap-2 sm:gap-3">
+              <Skeleton className="h-12 flex-1 rounded-2xl" />
+              <Skeleton className="h-12 w-28 rounded-2xl" />
             </div>
-          )}
-        </section>
-      </main>
-    </div>
+          </div>
+          <div className="min-w-0">
+            <Skeleton className="h-[60px] w-56 max-w-full" />
+            <Skeleton className="mt-4 h-[clamp(49px,15vw,94px)] w-[min(100%,28rem)] rounded-[10px]" />
+          </div>
+        </div>
+      }
+    >
+      <div aria-hidden className="relative -mt-14">
+        <Card raised padding="none">
+          <div className="flex flex-col items-center gap-3 px-6 py-12">
+            <Skeleton className="size-16 rounded-full" />
+            <Skeleton className="h-6 w-48" />
+            <Skeleton className="h-4 w-64 max-w-full" />
+          </div>
+        </Card>
+      </div>
+    </AppShell>
   );
 }
 
 export default function LookupPage() {
   return (
-    <Suspense
-      fallback={
-        <div className="app-backdrop flex min-h-dvh items-center justify-center pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)] text-slate-400">
-          Loading lookup…
-        </div>
-      }
-    >
+    <Suspense fallback={<LookupFallback />}>
       <LookupContent />
     </Suspense>
   );

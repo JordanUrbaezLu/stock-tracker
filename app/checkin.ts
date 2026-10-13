@@ -97,6 +97,40 @@ export function recordCheckin(): CheckinResult {
   return { isNewDay, streak, milestone };
 }
 
+export type RecentDay = {
+  /** YYYY-MM-DD (local). */
+  key: string;
+  /** One-letter weekday: "M", "T", "W"… */
+  label: string;
+  /** The app was opened on this day (it is in the ledger). */
+  stamped: boolean;
+  isToday: boolean;
+};
+
+const WEEKDAY_LETTERS = ["S", "M", "T", "W", "T", "F", "S"];
+
+/**
+ * The last `n` local days, oldest first and ending today — the row of day
+ * stamps on the daily ticket. Read-only: it never writes the ledger, so call
+ * it after `recordCheckin()` if today should already count.
+ */
+export function recentDays(n: number): RecentDay[] {
+  const stamped = new Set(readDays());
+  const today = todayKey();
+  const out: RecentDay[] = [];
+  for (let back = Math.max(0, Math.floor(n)) - 1; back >= 0; back--) {
+    const key = shiftDay(today, -back);
+    const [y, m, d] = key.split("-").map(Number);
+    out.push({
+      key,
+      label: WEEKDAY_LETTERS[new Date(y, m - 1, d).getDay()],
+      stamped: stamped.has(key),
+      isToday: back === 0,
+    });
+  }
+  return out;
+}
+
 export function getViewer(): string | null {
   if (typeof window === "undefined") return null;
   try {

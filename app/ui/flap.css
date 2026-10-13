@@ -1,0 +1,172 @@
+/* Split-flap display (FlapDisplay.tsx). Tiles always use the board palette —
+   they're physical objects, so they read the same on the dark board and on
+   light/dark hall surfaces.
+
+   Re-declaring Tailwind's layer order keeps `components` above preflight even
+   if this file happens to load before globals.css. */
+@layer theme, base, components, utilities;
+
+@layer components {
+  .flap {
+    --flap-size: 28px;
+    --flap-ink: var(--board-ink);
+    display: inline-flex;
+    max-width: 100%;
+    vertical-align: middle;
+    line-height: 1;
+    /* Never wider than the space it's given. --flap-em is the row width in em
+       (from the characters); --flap-avail is the parent's measured width,
+       with a phone-gutter fallback for the server render. */
+    font-size: min(
+      var(--flap-size),
+      calc((var(--flap-avail, 100vw - 32px)) / var(--flap-em, 1))
+    );
+  }
+
+  .flap[data-size="hero"] { --flap-size: clamp(44px, 13.4vw, 84px); }
+  .flap[data-size="lg"] { --flap-size: clamp(30px, 7.5vw, 52px); }
+  .flap[data-size="md"] { --flap-size: 28px; }
+  .flap[data-size="sm"] { --flap-size: 18px; }
+
+  .flap[data-tone="amber"] { --flap-ink: var(--board-amber); }
+  .flap[data-tone="gain"] { --flap-ink: var(--board-gain); }
+  .flap[data-tone="loss"] { --flap-ink: var(--board-loss); }
+
+  .flap__row {
+    display: inline-flex;
+    gap: 0.06em;
+    white-space: nowrap;
+  }
+
+  .flap__tile {
+    --flap-top-hi: color-mix(in oklab, var(--tile-top), #fff 5%);
+    --flap-bottom-lo: color-mix(in oklab, var(--tile), #000 16%);
+    --notch: max(1px, 0.05em);
+    position: relative;
+    flex: none;
+    width: 0.62em;
+    height: 1.12em;
+    border-radius: 0.1em;
+    background: var(--seam);
+    color: var(--flap-ink);
+    font-family: var(--font-display);
+    font-stretch: 75%;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0;
+    /* Line box = tile height, so each glyph's em box is centred on the seam. */
+    line-height: 1.12em;
+    text-align: center;
+    /* Leaves rotate in this tile's 3D space. */
+    perspective: 2.6em;
+    box-shadow:
+      0 0.025em 0 rgb(0 0 0 / 0.45),
+      0 0.07em 0.16em -0.04em rgb(0 0 0 / 0.4);
+    transition: width 220ms var(--ease-board);
+  }
+
+  .flap__tile[data-kind="narrow"] { width: 0.34em; }
+
+  .flap__tile[data-kind="gap"] {
+    width: 0.3em;
+    background: none;
+    box-shadow: none;
+  }
+  .flap__tile[data-kind="gap"] > *,
+  .flap__tile[data-kind="gap"]::before,
+  .flap__tile[data-kind="gap"]::after {
+    display: none;
+  }
+
+  /* Every face is a full tile clipped to one half, so the glyph halves line
+     up exactly and the rotation axis (the box centre) is the seam. */
+  .flap__face {
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+  }
+  /* Glyphs come from an attribute so React never owns the text the flip
+     loop rewrites mid-animation. */
+  .flap__face::before {
+    content: attr(data-ch);
+    display: block;
+    /* Optical centring: Archivo's figures sit a hair high in the line box. */
+    transform: translateY(0.015em);
+  }
+
+  .flap__face--top {
+    clip-path: inset(0 0 50% 0);
+    background: linear-gradient(180deg, var(--flap-top-hi) 0%, var(--tile-top) 50%);
+    box-shadow: inset 0 max(1px, 0.02em) 0 rgb(255 255 255 / 0.08);
+  }
+
+  .flap__face--bottom {
+    clip-path: inset(50% 0 0 0);
+    background:
+      /* the upper flap's lip shades the lower one just under the seam */
+      linear-gradient(180deg, rgb(0 0 0 / 0.32) 50%, rgb(0 0 0 / 0) 61%),
+      linear-gradient(180deg, var(--tile) 50%, var(--flap-bottom-lo) 100%);
+  }
+
+  /* The two moving leaves; hidden at rest, driven per frame while flipping. */
+  .flap__leaf {
+    visibility: hidden;
+    transform-origin: 50% 50%;
+    backface-visibility: hidden;
+  }
+  .flap__leaf::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    background: #000;
+    opacity: var(--shade, 0);
+  }
+  /* The landing leaf faces up toward the light mid-swing: highlight, not shade. */
+  .flap__leaf.flap__face--bottom::after {
+    background: #fff;
+  }
+
+  .flap__tile::before,
+  .flap__tile::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 50%;
+    z-index: 1;
+    transform: translateY(-50%);
+    pointer-events: none;
+  }
+  /* The split. */
+  .flap__tile::before {
+    height: max(1px, 0.03em);
+    background: var(--seam);
+  }
+  /* Axle bites: a half-round notch at each end of the split. */
+  .flap__tile::after {
+    height: calc(var(--notch) * 2 + 2px);
+    background:
+      radial-gradient(circle at 0 50%, var(--seam) var(--notch), transparent calc(var(--notch) + 0.5px)),
+      radial-gradient(circle at 100% 50%, var(--seam) var(--notch), transparent calc(var(--notch) + 0.5px));
+  }
+
+  /* Signs and wide marks are printed smaller/narrower, as on a real board, so
+     they sit inside a standard tile. Keyed off the glyph itself, so it also
+     applies mid-flip. */
+  .flap__face:is([data-ch="+"], [data-ch="−"], [data-ch="-"], [data-ch="±"])::before {
+    font-size: 0.8em;
+  }
+  .flap__face:is([data-ch="%"], [data-ch="@"], [data-ch="&"], [data-ch="M"], [data-ch="W"], [data-ch="m"], [data-ch="w"])::before {
+    font-stretch: 62%;
+  }
+  .flap__face:is([data-ch="%"], [data-ch="@"], [data-ch="&"])::before {
+    font-size: 0.86em;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .flap__tile {
+      transition: none;
+    }
+  }
+}

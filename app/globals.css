@@ -1,262 +1,409 @@
 @import "tailwindcss";
 
+/* ============================================================================
+   "Club Arena" design tokens — see DESIGN.md §1.
+   Semantic variables only; components never use raw palette colors. Context
+   scopes re-point the semantic tokens so any primitive renders correctly
+   wherever it sits, with no variant props:
+     .on-board   the dark split-flap scoreboard
+     .on-jersey  a saturated jersey color (player cards)
+     .on-amber   an amber-bright fill (primary keys, the segmented thumb)
+   Anything built from another token (shadows, focus) references it at the
+   point of use, never inside a :root variable — a var() inside a custom
+   property resolves where it is declared, so a scope couldn't re-point it.
+   ========================================================================== */
+
 :root {
-  --background: #060710;
-  --foreground: #eef1fb;
-  --gain: #34d399;
-  --loss: #fb7185;
-  --accent: #67e8f9;
+  /* Hall (light): the periwinkle arena floor. */
+  --hall: #eceaf8;
+  --surface: #ffffff;
+  --surface-2: #f5f4fc;
+  --surface-3: #e7e5f5;
+  --line: #e1dff0;
+  --line-strong: #cbc8e2;
+  /* The solid bottom "lip" under cards and keys. */
+  --lip: #d5d2ec;
+  --ink: #16141f;
+  --ink-2: #3e3b4e;
+  --muted: #66627a;
+  --faint: #a19db5;
+  --gain: #087a49;
+  --gain-soft: #eaf8f0;
+  --loss: #c52f38;
+  --loss-soft: #fef0f0;
+  --amber: #8f5600;
+  --amber-soft: #fff1d6;
+  /* Text on an ink fill (the "ink" key, ink chips). */
+  --on-ink: #ffffff;
+  --focus: var(--ink);
+
+  /* The action color and the fun accents: identical in every theme and
+     context — they are physical objects, not lighting. */
+  --amber-bright: #ffb547;
+  --amber-lip: #d4891c;
+  --pop-pink: #ff4f9a;
+  --pop-blue: #3e6bff;
+  --pop-lime: #7bd23c;
+  --pop-violet: #7b5cff;
+  /* Medal metals (podium caps, rank medals): material constants too. Gold
+     is the amber key itself. CSS-only — not Tailwind colors. */
+  --metal-gold: #ffb547;
+  --metal-gold-lip: #d4891c;
+  --metal-silver: #c9ccda;
+  --metal-silver-lip: #9195aa;
+  --metal-bronze: #df9a64;
+  --metal-bronze-lip: #a8673b;
+
+  /* Scoreboard (the dark split-flap object) — same in both themes except
+     the board itself. */
+  --board: #141219;
+  --board-2: #1d1b24;
+  --tile: #26242d;
+  --tile-top: #2e2c36;
+  --seam: #08070b;
+  --board-ink: #f6f1e6;
+  --board-muted: #a6a2b5;
+  --board-amber: #ffb547;
+  --board-gain: #45dc95;
+  --board-loss: #ff7378;
+
+  /* Achievement badge tones (stickers, the badge shelf, card teasers). */
+  --badge-gold: #8f5600;
+  --badge-gold-soft: #fff1d6;
+  --badge-green: #087a49;
+  --badge-green-soft: #e4f6eb;
+  --badge-blue: #2a56d6;
+  --badge-blue-soft: #e8edff;
+  --badge-purple: #6542dc;
+  --badge-purple-soft: #efeaff;
+  --badge-rose: #c02a6c;
+  --badge-rose-soft: #ffe9f3;
+
+  /* Soft ambient depth under the lip — violet-tinted so it reads as the
+     hall's own shadow, not grey. */
+  --elev-ambient: 0 14px 28px -18px rgb(46 38 110 / 0.3);
+  --elev-pop: 0 26px 52px -22px rgb(46 38 110 / 0.45), 0 2px 8px rgb(46 38 110 / 0.06);
+  /* Skeleton shimmer band: always lighter than the placeholder it crosses. */
+  --skeleton-sheen: rgb(255 255 255 / 0.65);
+
+  /* Shell metrics (content heights; safe-area insets are added on top). */
+  --brandbar-h: 60px;
+  --tabbar-h: 64px;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --hall: #100f17;
+    --surface: #1a1824;
+    --surface-2: #211f2d;
+    --surface-3: #2a2838;
+    --line: #2b2939;
+    --line-strong: #3a374b;
+    --lip: #07060b;
+    --ink: #f2f0fa;
+    --ink-2: #c9c6d8;
+    --muted: #9a96af;
+    --faint: #625e75;
+    --gain: #3ddc8e;
+    --gain-soft: rgb(61 220 142 / 0.12);
+    --loss: #ff6b70;
+    --loss-soft: rgb(255 107 112 / 0.12);
+    --amber: #ffb547;
+    --amber-soft: rgb(255 181 71 / 0.12);
+    --on-ink: #16141f;
+
+    --board: #17151e;
+
+    --badge-gold: #ffb547;
+    --badge-gold-soft: rgb(255 181 71 / 0.13);
+    --badge-green: #3ddc8e;
+    --badge-green-soft: rgb(61 220 142 / 0.13);
+    --badge-blue: #8fa9ff;
+    --badge-blue-soft: rgb(143 169 255 / 0.14);
+    --badge-purple: #b9a3ff;
+    --badge-purple-soft: rgb(185 163 255 / 0.14);
+    --badge-rose: #ff8dbf;
+    --badge-rose-soft: rgb(255 141 191 / 0.13);
+
+    --elev-ambient: 0 14px 28px -18px rgb(0 0 0 / 0.6);
+    --elev-pop: 0 28px 64px -22px rgb(0 0 0 / 0.75);
+    --skeleton-sheen: rgb(255 255 255 / 0.06);
+
+    color-scheme: dark;
+  }
+}
+
+/* Context scopes live in the base layer so a utility on the scope element
+   itself (e.g. `on-board text-muted`) still wins over the scope's color. */
+@layer base {
+  /* Board context: every semantic token re-pointed to its board value. */
+  .on-board {
+    --surface: var(--board-2);
+    --surface-2: #25232e;
+    --surface-3: #2f2d39;
+    --line: rgb(246 241 230 / 0.1);
+    --line-strong: rgb(246 241 230 / 0.2);
+    --lip: var(--seam);
+    --ink: var(--board-ink);
+    --ink-2: #dcd7cd;
+    --muted: var(--board-muted);
+    --faint: #6e6a7e;
+    --gain: var(--board-gain);
+    --gain-soft: rgb(69 220 149 / 0.14);
+    --loss: var(--board-loss);
+    --loss-soft: rgb(255 115 120 / 0.14);
+    --amber: var(--board-amber);
+    --amber-soft: rgb(255 181 71 / 0.14);
+    --on-ink: var(--board);
+    --focus: var(--board-amber);
+    --badge-gold: #ffb547;
+    --badge-gold-soft: rgb(255 181 71 / 0.14);
+    --badge-green: #45dc95;
+    --badge-green-soft: rgb(69 220 149 / 0.14);
+    --badge-blue: #8fa9ff;
+    --badge-blue-soft: rgb(143 169 255 / 0.15);
+    --badge-purple: #b9a3ff;
+    --badge-purple-soft: rgb(185 163 255 / 0.15);
+    --badge-rose: #ff8dbf;
+    --badge-rose-soft: rgb(255 141 191 / 0.14);
+    --elev-ambient: 0 14px 28px -18px rgb(0 0 0 / 0.7);
+    --elev-pop: 0 28px 64px -22px rgb(0 0 0 / 0.8);
+    --skeleton-sheen: rgb(246 241 230 / 0.07);
+    color: var(--ink);
+    color-scheme: dark;
+  }
+
+  /* Jersey context: content on a saturated jersey color (player cards). Every
+     color goes white; gain/loss are carried by the arrow and the words, so
+     the jersey never fights a green or red. */
+  .on-jersey {
+    --ink: #ffffff;
+    --ink-2: rgb(255 255 255 / 0.9);
+    /* Small text needs 4.5:1 on the card face (see jerseyCard): muted is
+       plain white (size and weight carry the hierarchy), and wells/pills sink
+       darker, because a lighter fill under white text drops it to 2-3:1. */
+    --muted: #ffffff;
+    --faint: rgb(255 255 255 / 0.55);
+    --line: rgb(255 255 255 / 0.24);
+    --line-strong: rgb(255 255 255 / 0.38);
+    --surface: rgb(255 255 255 / 0.14);
+    --surface-2: rgb(0 0 0 / 0.22);
+    --surface-3: rgb(255 255 255 / 0.28);
+    --gain: #ffffff;
+    --loss: #ffffff;
+    --gain-soft: rgb(0 0 0 / 0.22);
+    --loss-soft: rgb(0 0 0 / 0.22);
+    --amber: #ffffff;
+    --amber-soft: rgb(255 255 255 / 0.2);
+    --lip: rgb(0 0 0 / 0.22);
+    --on-ink: #16141f;
+    --focus: #ffffff;
+    --elev-ambient: 0 12px 24px -16px rgb(0 0 0 / 0.35);
+    --elev-pop: 0 24px 48px -20px rgb(0 0 0 / 0.45);
+    --skeleton-sheen: rgb(255 255 255 / 0.25);
+    color: #ffffff;
+    color-scheme: dark;
+  }
+
+  /* Amber context: content on an amber-bright fill. Dark ink in every theme;
+     gain/loss deepen so a timespan's colored return still reads on the
+     active tab. */
+  .on-amber {
+    --ink: #16141f;
+    --ink-2: rgb(22 20 31 / 0.84);
+    --muted: rgb(22 20 31 / 0.68);
+    --faint: rgb(22 20 31 / 0.42);
+    --line: rgb(22 20 31 / 0.14);
+    --line-strong: rgb(22 20 31 / 0.26);
+    --surface: rgb(255 255 255 / 0.45);
+    --surface-2: rgb(255 255 255 / 0.3);
+    --surface-3: rgb(22 20 31 / 0.1);
+    --gain: #05582f;
+    --gain-soft: rgb(5 88 47 / 0.12);
+    --loss: #9e1a24;
+    --loss-soft: rgb(158 26 36 / 0.12);
+    --amber: #5c3500;
+    --amber-soft: rgb(22 20 31 / 0.08);
+    --lip: var(--amber-lip);
+    --on-ink: #ffb547;
+    --focus: #16141f;
+    color: var(--ink);
+    color-scheme: light;
+  }
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-  --font-display: var(--font-display);
+  --color-hall: var(--hall);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-lip: var(--lip);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-on-ink: var(--on-ink);
+  --color-gain: var(--gain);
+  --color-gain-soft: var(--gain-soft);
+  --color-loss: var(--loss);
+  --color-loss-soft: var(--loss-soft);
+  --color-amber: var(--amber);
+  --color-amber-soft: var(--amber-soft);
+  --color-amber-bright: var(--amber-bright);
+  --color-amber-lip: var(--amber-lip);
+  --color-pop-pink: var(--pop-pink);
+  --color-pop-blue: var(--pop-blue);
+  --color-pop-lime: var(--pop-lime);
+  --color-pop-violet: var(--pop-violet);
+  --color-board: var(--board);
+  --color-board-2: var(--board-2);
+  --color-tile: var(--tile);
+  --color-tile-top: var(--tile-top);
+  --color-seam: var(--seam);
+  --color-board-ink: var(--board-ink);
+  --color-board-muted: var(--board-muted);
+  --color-board-amber: var(--board-amber);
+  --color-board-gain: var(--board-gain);
+  --color-board-loss: var(--board-loss);
+  --color-badge-gold: var(--badge-gold);
+  --color-badge-gold-soft: var(--badge-gold-soft);
+  --color-badge-green: var(--badge-green);
+  --color-badge-green-soft: var(--badge-green-soft);
+  --color-badge-blue: var(--badge-blue);
+  --color-badge-blue-soft: var(--badge-blue-soft);
+  --color-badge-purple: var(--badge-purple);
+  --color-badge-purple-soft: var(--badge-purple-soft);
+  --color-badge-rose: var(--badge-rose);
+  --color-badge-rose-soft: var(--badge-rose-soft);
+
+  --font-sans: var(--font-archivo), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-display: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-martian), ui-monospace, "SFMono-Regular", Menlo,
+    monospace;
+
+  --ease-board: cubic-bezier(0.22, 1, 0.36, 1);
 }
+
+/* ---------------------------------------------------------------- Base ---- */
 
 html {
   -webkit-text-size-adjust: 100%;
+  background: var(--hall);
+  /* Also on html: body's overflow-x alone is propagated to the viewport, so
+     body itself clips nothing and anything poking past the right edge (a
+     stamp slamming down at 2.2x) widens the layout viewport, which shoves
+     the fixed tab bar off-screen on phones until it settles. */
+  overflow-x: clip;
 }
 
 body {
+  /* next/font declares --font-archivo / --font-martian on <body>, so the
+     theme stacks that reference them are invalid where @theme puts them
+     (:root) and every var(--font-*) would fall back to the system font.
+     Re-declared here, they resolve and inherit to everything in the app. */
+  --font-sans: var(--font-archivo), ui-sans-serif, system-ui, -apple-system,
+    "Segoe UI", sans-serif;
+  --font-display: var(--font-archivo), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-martian), ui-monospace, "SFMono-Regular", Menlo,
+    monospace;
+
   /* clip (not hidden) so overflow-y stays "visible" and body doesn't become a
-     nested scroll container, which otherwise adds extra scrollable height. */
+     nested scroll container. */
   overflow-x: clip;
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI",
-    sans-serif;
+  min-height: 100dvh;
+  background: var(--hall);
+  color: var(--ink);
+  font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
+  -webkit-tap-highlight-color: transparent;
 }
 
-/* Fine film grain over the whole product — the texture that separates a
-   "premium" surface from a flat one. Fixed + pointer-events:none, and below the
-   z-50 modal layer so popups stay crisp. */
-body::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  opacity: 0.035;
-  mix-blend-mode: overlay;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
 }
 
-/* Display face: brand + big numbers + section headings get real presence. */
-.font-display {
-  font-family: var(--font-display), var(--font-geist-sans), sans-serif;
-  font-feature-settings: "tnum" 1;
+::selection {
+  background: var(--amber-bright);
+  color: #16141f;
+}
+
+/* ------------------------------------------------------------ Type ------- */
+
+/* Big numbers, flap characters, names, UPPERCASE section headers. */
+@utility type-display {
+  font-family: var(--font-display);
+  font-stretch: 72%;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Card titles. */
+@utility type-title {
+  font-family: var(--font-display);
+  font-stretch: 85%;
+  font-weight: 700;
   letter-spacing: -0.01em;
 }
-h1,
-h2 {
-  font-family: var(--font-display), var(--font-geist-sans), sans-serif;
-  letter-spacing: -0.015em;
+
+/* Every hall stat/field label: sentence case, never tiny caps. Sorts before
+   single-property utilities, so `type-label text-ink` recolors it. */
+@utility type-label {
+  font-family: var(--font-sans);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.3;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--muted);
 }
-/* Tabular, slightly-tightened numerics for any data figure. */
-.tnum {
+
+/* Mono data stamps — ONLY on the scoreboard, the ticker tape, chart axes. */
+@utility type-eyebrow {
+  font-family: var(--font-mono);
+  font-stretch: 87.5%;
+  font-weight: 500;
+  font-size: 11px;
+  line-height: 1.4;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+@utility tnum {
   font-variant-numeric: tabular-nums;
-  font-feature-settings: "tnum" 1;
 }
 
-/* ---- Live broadcast ticker ---- */
-.ticker-tape {
-  -webkit-mask-image: linear-gradient(
-    90deg,
-    transparent,
-    #000 6%,
-    #000 94%,
-    transparent
-  );
-  mask-image: linear-gradient(
-    90deg,
-    transparent,
-    #000 6%,
-    #000 94%,
-    transparent
-  );
-}
-.ticker-track {
-  animation: ticker-scroll 52s linear infinite;
-  will-change: transform;
-}
-@keyframes ticker-scroll {
-  to {
-    transform: translateX(-50%);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .ticker-track {
-    animation: none;
-  }
+/* Objects rest on a solid lip + a soft ambient shadow. The lip references
+   var(--lip) here (not via a :root variable) so each context re-points it. */
+@utility shadow-card {
+  box-shadow: 0 3px 0 var(--lip), var(--elev-ambient);
 }
 
-/* Ambient app backdrop: a richer, curated aurora over deep violet-slate. */
-.app-backdrop {
-  position: relative;
-  isolation: isolate;
-  background:
-    radial-gradient(64rem 54rem at 6% -14%, rgba(45, 226, 230, 0.2), transparent 56%),
-    radial-gradient(54rem 50rem at 106% 2%, rgba(232, 121, 249, 0.16), transparent 52%),
-    radial-gradient(82rem 72rem at 50% 130%, rgba(124, 92, 255, 0.22), transparent 58%),
-    radial-gradient(42rem 42rem at 92% 94%, rgba(255, 146, 102, 0.07), transparent 60%),
-    linear-gradient(176deg, #080a1a 0%, #0a0c22 40%, #060713 78%, #04050e 100%);
+/* Floating objects: menus, modals, cards pulled over the board's edge. */
+@utility shadow-pop {
+  box-shadow: 0 4px 0 var(--lip), var(--elev-pop);
 }
 
-.app-backdrop::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  background-image:
-    linear-gradient(rgba(148, 163, 184, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 163, 184, 0.05) 1px, transparent 1px);
-  background-size: 44px 44px;
-  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
-  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+/* Just the lip, for small objects (tiles, podium steps) that sit flush. */
+@utility shadow-lip {
+  box-shadow: 0 3px 0 var(--lip);
 }
 
-/* Slow drifting aurora glows for a premium, living backdrop. Fixed so the
-   negative inset never inflates the document's scroll height. */
-.app-backdrop::after {
-  content: "";
-  position: fixed;
-  inset: -20%;
-  z-index: -1;
-  pointer-events: none;
-  background:
-    radial-gradient(40rem 40rem at 16% 26%, rgba(45, 226, 230, 0.11), transparent 60%),
-    radial-gradient(36rem 36rem at 84% 74%, rgba(232, 121, 249, 0.11), transparent 60%);
-  animation: aurora-drift 26s ease-in-out infinite alternate;
-  transition: background 1.2s ease;
-}
+/* ---------------------------------------------------------- Motion ------- */
 
-/* Data-driven mood: the whole ambient aurora warms toward green when the league
-   is up and toward rose when it's down — the room reflects how everyone's doing. */
-.app-backdrop[data-mood="up"]::after {
-  background:
-    radial-gradient(40rem 40rem at 16% 26%, rgba(52, 211, 153, 0.13), transparent 60%),
-    radial-gradient(36rem 36rem at 84% 74%, rgba(45, 212, 191, 0.1), transparent 60%);
-}
-.app-backdrop[data-mood="down"]::after {
-  background:
-    radial-gradient(40rem 40rem at 16% 26%, rgba(251, 113, 133, 0.13), transparent 60%),
-    radial-gradient(36rem 36rem at 84% 74%, rgba(244, 63, 94, 0.1), transparent 60%);
-}
-
-@keyframes aurora-drift {
-  0% {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  100% {
-    transform: translate3d(2%, -3%, 0) scale(1.08);
-  }
-}
-
-/* Glass surface used across cards and panels.
-   Architecture (each piece is load-bearing):
-   - The PANEL GRADIENT lives on the element as background-image. Element
-     backgrounds fill the border box to the OUTER radius (default
-     background-clip), so the panel reaches under the 1px semi-transparent
-     border with no corner gaps — putting it on an inset:0 pseudo leaves a
-     crescent of un-painted backdrop at every corner (pseudo sits in the
-     padding box but inherits the outer radius) plus an un-backed border ring.
-     background-IMAGE (not shorthand) so per-card background-color utilities
-     (e.g. bg-rose-950/30) compose under the gradient instead of being replaced.
-   - The BLUR stays on a ::before: backdrop-filter directly on a rounded
-     element leaves a faint concentric corner in Chromium. The pseudo must NOT
-     paint anything over the border (negative z-index children still paint
-     ABOVE the root's own border), so it carries no background.
-   - Everything sits in @layer components so Tailwind utilities (border-*,
-     shadow-*, ring-*) genuinely win over these defaults — unlayered author
-     CSS silently beats all utilities in Tailwind v4. */
-@layer components {
-  .glass {
-    position: relative;
-    isolation: isolate;
-    border: 1px solid rgba(255, 255, 255, 0.09);
-    background-image: linear-gradient(
-      158deg,
-      rgba(255, 255, 255, 0.1),
-      rgba(255, 255, 255, 0.028) 36%,
-      rgba(10, 12, 28, 0.62)
-    );
-  }
-  .glass::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    z-index: -1;
-    border-radius: inherit;
-    backdrop-filter: blur(16px) saturate(140%);
-    -webkit-backdrop-filter: blur(16px) saturate(140%);
-    /* Lit-from-above: a hairline top highlight + a faint inner edge give the
-       card real depth instead of a flat translucent panel. */
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.12),
-      inset 0 0 0 1px rgba(255, 255, 255, 0.015);
-  }
-
-  /* Admin mode: a light-pink border + wash so it's subtly clear you're signed
-     in. Border/background only — never box-shadow, which would replace every
-     per-card shadow-* and ring-* utility (they all compile to box-shadow). */
-  html[data-admin="true"] .glass {
-    border-color: rgba(244, 114, 182, 0.18);
-    background-image: linear-gradient(
-      158deg,
-      rgba(244, 114, 182, 0.07),
-      rgba(255, 255, 255, 0.028) 36%,
-      rgba(10, 12, 28, 0.62)
-    );
-  }
-
-  /* Touch devices (any-pointer so an iPad with a trackpad still matches):
-     backdrop-filter re-rasterizes every frame during scroll/drag — swap the
-     blur for a near-opaque panel (visually near-identical on these screens).
-     On the element, so it still fills flush under the border. */
-  @media (any-pointer: coarse) {
-    .glass {
-      background-image: linear-gradient(
-        160deg,
-        rgba(23, 29, 52, 0.82),
-        rgba(9, 12, 26, 0.92)
-      );
-    }
-    html[data-admin="true"] .glass {
-      background-image: linear-gradient(
-        160deg,
-        rgba(52, 29, 46, 0.84),
-        rgba(9, 12, 26, 0.92)
-      );
-    }
-    .glass::before {
-      backdrop-filter: none;
-      -webkit-backdrop-filter: none;
-    }
-  }
-}
-
-.gradient-text {
-  font-family: var(--font-display), var(--font-geist-sans), sans-serif;
-  letter-spacing: -0.02em;
-  background: linear-gradient(100deg, #7df0ff, #e879f9 52%, #8b9bff);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.text-balance {
-  text-wrap: balance;
-}
-
-@keyframes fade-in-up {
+@keyframes rise-in {
   from {
     opacity: 0;
-    transform: translateY(14px);
+    transform: translateY(12px);
   }
   to {
     opacity: 1;
@@ -264,39 +411,17 @@ h2 {
   }
 }
 
-.animate-fade-in-up {
-  animation: fade-in-up 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-}
-
-/* Staggered, spring-eased reveal of a page's top-level sections on load — the
-   content settles in like a deck being dealt. `backwards` keeps each section
-   hidden until its delay. */
+/* Staggered reveal of a container's direct children on load. `backwards`
+   keeps each child hidden until its delay. */
 .stagger-children > * {
-  animation: fade-in-up 0.62s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+  animation: rise-in 0.6s var(--ease-board) backwards;
 }
-.stagger-children > *:nth-child(1) {
-  animation-delay: 0.04s;
-}
-.stagger-children > *:nth-child(2) {
-  animation-delay: 0.11s;
-}
-.stagger-children > *:nth-child(3) {
-  animation-delay: 0.18s;
-}
-.stagger-children > *:nth-child(4) {
-  animation-delay: 0.25s;
-}
-.stagger-children > *:nth-child(5) {
-  animation-delay: 0.32s;
-}
-.stagger-children > *:nth-child(n + 6) {
-  animation-delay: 0.38s;
-}
-@media (prefers-reduced-motion: reduce) {
-  .stagger-children > * {
-    animation: none;
-  }
-}
+.stagger-children > *:nth-child(1) { animation-delay: 0.04s; }
+.stagger-children > *:nth-child(2) { animation-delay: 0.1s; }
+.stagger-children > *:nth-child(3) { animation-delay: 0.16s; }
+.stagger-children > *:nth-child(4) { animation-delay: 0.22s; }
+.stagger-children > *:nth-child(5) { animation-delay: 0.28s; }
+.stagger-children > *:nth-child(n + 6) { animation-delay: 0.34s; }
 
 @keyframes shimmer {
   100% {
@@ -307,21 +432,38 @@ h2 {
 .skeleton {
   position: relative;
   overflow: hidden;
-  background: rgba(148, 163, 184, 0.08);
+  background: var(--surface-3);
 }
-
 .skeleton::after {
   content: "";
   position: absolute;
   inset: 0;
   transform: translateX(-100%);
-  background: linear-gradient(
-    90deg,
-    transparent,
-    rgba(148, 163, 184, 0.16),
-    transparent
-  );
+  background: linear-gradient(90deg, transparent, var(--skeleton-sheen), transparent);
   animation: shimmer 1.6s infinite;
+}
+
+/* Live-data heartbeat dot (status indicator). */
+@keyframes live-pulse {
+  0% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--gain) 55%, transparent); }
+  70% { box-shadow: 0 0 0 6px transparent; }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+.live-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 9999px;
+  background: var(--gain);
+  animation: live-pulse 2.2s ease-out infinite;
+}
+.live-dot.live-dot--loading {
+  background: var(--amber-bright);
+  animation-duration: 1s;
+}
+.live-dot.live-dot--error {
+  background: var(--loss);
+  animation: none;
 }
 
 /* Hide scrollbars on horizontal helpers without losing scroll. */
@@ -333,270 +475,40 @@ h2 {
   scrollbar-width: none;
 }
 
-/* ---- Animated company logos ---- */
-@keyframes spin-slow {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@keyframes logo-pop {
-  0% {
-    opacity: 0;
-    transform: scale(0.5) rotate(-14deg);
-  }
-  60% {
-    opacity: 1;
-    transform: scale(1.09) rotate(3deg);
-  }
-  100% {
-    opacity: 1;
-    transform: scale(1) rotate(0deg);
-  }
-}
-
-@keyframes logo-float {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-3px);
-  }
-}
-
-.company-logo {
-  position: relative;
-  display: inline-grid;
-  place-items: center;
-  flex: none;
-  border-radius: 0.8rem;
-  animation: logo-pop 0.55s cubic-bezier(0.22, 1, 0.36, 1) backwards;
-  transition: transform 0.25s ease;
-}
-button.company-logo {
-  border: none;
-  padding: 0;
-  background: none;
-  cursor: pointer;
-  font: inherit;
-  color: inherit;
-}
-/* Hover grow only where hover exists — a raw :hover sticks after a tap on iOS
-   (the logo stays scaled with a bright ring until the next tap elsewhere). */
-@media (hover: hover) {
-  .company-logo:hover {
-    transform: scale(1.12);
-  }
-  .company-logo:hover .company-logo__ring {
-    opacity: 0.75;
-  }
-}
-.company-logo:active {
-  transform: scale(0.94);
-}
-
-/* Wrapper that carries the continuous bob, so the whole chip + ring move
-   together as a unit (the image never slides out of its own frame). */
-.company-logo__bob {
-  position: relative;
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
-  border-radius: inherit;
-  animation: logo-float 4.5s ease-in-out infinite;
-}
-
-.company-logo__ring {
-  position: absolute;
-  inset: -3px;
-  border-radius: inherit;
-  background: conic-gradient(
-    from 0deg,
-    #22d3ee,
-    #a855f7,
-    #6366f1,
-    #f0abfc,
-    #22d3ee
-  );
-  filter: blur(5px);
-  opacity: 0.4;
-  z-index: 0;
-  animation: spin-slow 7s linear infinite;
-}
-
-.company-logo__inner {
-  position: relative;
-  z-index: 1;
-  display: grid;
-  place-items: center;
-  width: 100%;
-  height: 100%;
-  border-radius: inherit;
-  overflow: hidden;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.15);
-}
-.company-logo__inner--img {
-  background: #ffffff;
-}
-.company-logo__img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.company-logo__mono {
-  background: linear-gradient(135deg, #22d3ee, #a855f7 60%, #6366f1);
-  color: #050616;
-  font-weight: 800;
-  letter-spacing: -0.03em;
-  text-transform: uppercase;
-}
-
-/* Gentle reveal for portfolio graph lines (reliable across re-renders). */
-@keyframes spark-fade {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-.spark-line {
-  opacity: 0;
-  animation: spark-fade 0.7s ease-out forwards;
-}
-
-/* EKG-style pulse: a round glowing ball that sweeps along the line (positioned
-   + animated from JS so it stays circular under the SVG's non-uniform stretch). */
-.spark-pulse {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 9px;
-  height: 9px;
-  margin: -4.5px 0 0 -4.5px;
-  border-radius: 9999px;
-  background: #ffffff;
-  box-shadow:
-    0 0 4px 1px var(--c, #34d399),
-    0 0 9px 2px var(--c, #34d399),
-    0 0 15px 4px var(--c, #34d399);
-  opacity: 0;
-  pointer-events: none;
-  will-change: left, top, opacity;
-  /* Promote to its own compositor layer so the per-frame left/top repaints stay
-     isolated from the surrounding card (smoother during carousel slides). */
-  transform: translateZ(0);
-}
-
-/* Live data heartbeat dot. */
-@keyframes live-pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.55);
-  }
-  70% {
-    box-shadow: 0 0 0 6px rgba(52, 211, 153, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(52, 211, 153, 0);
-  }
-}
-.live-dot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 9999px;
-  background: #34d399;
-  animation: live-pulse 2.2s ease-out infinite;
-}
-
-/* Faster amber pulse while data is loading (must follow .live-dot to win). */
-@keyframes live-pulse-loading {
-  0% {
-    box-shadow: 0 0 0 0 rgba(251, 191, 36, 0.6);
-  }
-  70% {
-    box-shadow: 0 0 0 7px rgba(251, 191, 36, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(251, 191, 36, 0);
-  }
-}
-.live-dot.live-dot--loading {
-  background: #fbbf24;
-  animation: live-pulse-loading 1s ease-out infinite;
-}
-.live-dot.live-dot--error {
-  background: #fb7185;
-  animation: none;
-}
-
-/* Investor avatar: gentle breathing glow ring (mirrors the live-data dot). */
-@keyframes avatar-pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0.3);
-  }
-  70% {
-    box-shadow: 0 0 0 7px rgba(255, 255, 255, 0);
-  }
-  100% {
-    box-shadow: 0 0 0 0 rgba(255, 255, 255, 0);
-  }
-}
-.avatar-pulse {
-  position: relative;
-}
-.avatar-pulse::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  animation: avatar-pulse 2.8s ease-out infinite;
+/* Skip rendering below-the-fold sections until scrolled near; `auto`
+   remembers each section's real size after first paint. */
+.cv-auto {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 480px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .animate-fade-in-up,
+  .stagger-children > *,
   .skeleton::after,
-  .company-logo,
-  .company-logo__ring,
-  .company-logo__bob,
-  .live-dot,
-  .avatar-pulse::after,
-  .app-backdrop::after {
+  .live-dot {
     animation: none;
-  }
-  .spark-line {
-    animation: none;
-    opacity: 1;
   }
   * {
     scroll-behavior: auto !important;
   }
 }
 
-/* Skip rendering/painting below-the-fold sections until they're scrolled near.
-   The `auto` keyword remembers each section's real size after first paint, so
-   the scrollbar/scroll position stays stable. */
-.cv-auto {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 480px;
-}
-
-/* Touch devices: continuously spinning blurred logo rings and the drifting
-   full-screen aurora are heavy compositing costs — they re-rasterize every
-   frame during scroll/drag/confetti and cause jank + late audio. Freeze the
-   always-animating decorations. (The glass blur's coarse-pointer fallback
-   lives with the .glass rules above.) */
-@media (any-pointer: coarse) {
-  .company-logo__ring {
-    animation: none;
-    filter: blur(3px);
-    opacity: 0.3;
+/* The race leader's crown. Tailwind's translate utilities use the `translate`
+   property, so this transform composes with the span's -translate-x-1/2. */
+@keyframes crown-bob {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-8deg);
   }
-  /* Freeze the fixed full-screen aurora — a continuously-compositing layer. */
-  .app-backdrop::after {
+  50% {
+    transform: translateY(-4px) rotate(6deg);
+  }
+}
+.crown-bob {
+  animation: crown-bob 1.5s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .crown-bob {
     animation: none;
   }
 }

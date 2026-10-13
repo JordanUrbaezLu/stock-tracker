@@ -1,5 +1,5 @@
 /**
- * Brand-colored celebratory confetti. No-ops on the server. `onBurst` (if given)
+ * Toy-colored celebratory confetti. No-ops on the server. `onBurst` (if given)
  * fires the instant the confetti actually appears — pass the paired celebration
  * sound here so it stays in sync with the (intentionally delayed) confetti
  * rather than playing ~300ms early.
@@ -15,7 +15,10 @@ export async function celebrate(onBurst?: () => void) {
   // loop is the most expensive thing on the main thread.
   const lite =
     window.matchMedia?.("(any-pointer: coarse)").matches ?? false;
-  const colors = ["#22d3ee", "#a855f7", "#34d399", "#fbbf24", "#f472b6"];
+  // Club Arena toy colors: the amber key, the four pops, and flap ink —
+  // constants (--amber-bright, --pop-*, --board-ink) since the canvas can't
+  // read CSS variables.
+  const colors = ["#FFB547", "#FF4F9A", "#3E6BFF", "#7BD23C", "#7B5CFF", "#F6F1E6"];
   const common = {
     spread: 75,
     startVelocity: 42,

@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, type MouseEvent } from "react";
+import { useState, type CSSProperties, type MouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import { fmpLogoUrl } from "@/lib/alpaca";
 import { useSound } from "./SoundContext";
+import "./ui/logo.css";
 
 type Props = {
   symbol: string;
@@ -17,6 +18,7 @@ type Props = {
 };
 
 const FMP_HOST = "financialmodelingprep.com";
+const MIN_HIT = 44;
 
 /**
  * Classify a logo by sampling a downscaled copy (FMP only — it sends CORS, so
@@ -63,14 +65,16 @@ function analyzeLogo(img: HTMLImageElement): "empty" | "light" | "dark" {
 /** Monogram font size so the full ticker fits the chip across lengths. */
 function monoFontSize(symbol: string, size: number): number {
   const len = symbol.length;
-  const ratio = len <= 2 ? 0.42 : len === 3 ? 0.33 : len === 4 ? 0.27 : 0.22;
+  // Sized for Archivo's condensed cut, which runs narrower than a normal width.
+  const ratio = len <= 2 ? 0.44 : len === 3 ? 0.37 : len === 4 ? 0.31 : 0.26;
   return Math.round(size * ratio);
 }
 
 /**
- * Animated, consistently-framed company mark. Uses the real brand logo when
- * available (Finnhub profile), and falls back to a gradient monogram so every
- * holding looks cohesive even when no logo exists (e.g. ETFs like SPY).
+ * Consistently framed company mark: the real brand logo on a white
+ * rounded-square chip when available (Finnhub profile, then FMP's CDN), and a
+ * condensed monogram otherwise (e.g. ETFs with no logo), so every holding
+ * looks cohesive. Pops in on mount, staggered by `delay`.
  */
 export function CompanyLogo({
   symbol,
@@ -93,64 +97,56 @@ export function CompanyLogo({
   const showImg = Boolean(src);
   const onDark = src ? lightLogos[src] : false;
 
-  const inner = (
-    <span className="company-logo__bob" style={{ animationDelay: `${-delay}ms` }}>
-      <span className="company-logo__ring" aria-hidden />
-      {showImg ? (
-        <span
-          className="company-logo__inner company-logo__inner--img"
-          style={onDark ? { background: "#0b1224" } : undefined}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={src as string}
-            alt={`${name || symbol} logo`}
-            className="company-logo__img"
-            loading="lazy"
-            crossOrigin={src?.includes(FMP_HOST) ? "anonymous" : undefined}
-            onError={() =>
-              setFailed((prev) => ({ ...prev, [src as string]: true }))
-            }
-            onLoad={(e) => {
-              // FMP logos are CORS-readable, so classify them: a truly empty
-              // image falls through to the monogram, while a light/white logo
-              // (e.g. QQQ) gets a dark backdrop so it's actually visible.
-              if (!src?.includes(FMP_HOST)) return;
-              const tone = analyzeLogo(e.currentTarget);
-              if (tone === "empty") {
-                setFailed((prev) => ({ ...prev, [src]: true }));
-              } else if (tone === "light") {
-                setLightLogos((prev) => ({ ...prev, [src]: true }));
-              }
-            }}
-          />
-        </span>
-      ) : (
-        <span
-          className="company-logo__inner company-logo__mono"
-          style={{ fontSize: monoFontSize(symbol, size) }}
-          aria-label={`${name || symbol} logo`}
-        >
-          {symbol.toUpperCase()}
-        </span>
-      )}
+  const inner = showImg ? (
+    <span
+      className={`logo-chip__face${onDark ? " logo-chip__face--dark" : ""}`}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src as string}
+        alt={`${name || symbol} logo`}
+        className="logo-chip__img"
+        loading="lazy"
+        crossOrigin={src?.includes(FMP_HOST) ? "anonymous" : undefined}
+        onError={() => setFailed((prev) => ({ ...prev, [src as string]: true }))}
+        onLoad={(e) => {
+          // FMP logos are CORS-readable, so classify them: a truly empty
+          // image falls through to the monogram, while a light/white logo
+          // (e.g. QQQ) gets a dark backdrop so it's actually visible.
+          if (!src?.includes(FMP_HOST)) return;
+          const tone = analyzeLogo(e.currentTarget);
+          if (tone === "empty") {
+            setFailed((prev) => ({ ...prev, [src]: true }));
+          } else if (tone === "light") {
+            setLightLogos((prev) => ({ ...prev, [src]: true }));
+          }
+        }}
+      />
+    </span>
+  ) : (
+    <span
+      className="logo-chip__face logo-chip__face--mono"
+      style={{ fontSize: monoFontSize(symbol, size) }}
+      role="img"
+      aria-label={`${name || symbol} logo`}
+    >
+      {symbol.toUpperCase()}
     </span>
   );
 
-  // Keep the rounded-SQUARE look consistent across sizes. The CSS sets a fixed
-  // 0.8rem radius, which on small marks (e.g. the 26px top-holdings logos)
-  // approaches half the box and renders as a circle. Scaling the radius with
-  // size keeps every logo a rounded square like the larger holding cards.
+  // Radius scales with size so every mark stays a rounded SQUARE — a fixed
+  // radius turns the small (26px) marks into circles.
   const style = {
     width: size,
     height: size,
     borderRadius: Math.round(size * 0.26),
-    animationDelay: `${delay}ms`,
-  };
+    "--logo-delay": `${delay}ms`,
+    "--logo-hit": `${Math.min(0, (size - MIN_HIT) / 2)}px`,
+  } as CSSProperties;
 
   if (!linkToLookup) {
     return (
-      <span className="company-logo" style={style}>
+      <span className="logo-chip" style={style}>
         {inner}
       </span>
     );
@@ -167,7 +163,7 @@ export function CompanyLogo({
     <button
       type="button"
       onClick={goLookup}
-      className="company-logo"
+      className="logo-chip"
       style={style}
       aria-label={`Look up ${symbol}`}
     >

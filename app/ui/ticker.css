@@ -1,0 +1,130 @@
+/* Board ticker tape (app/TickerTape.tsx). A CSS marquee: the track holds an
+   even number of copies of the tick list and slides by exactly half its own
+   width, so the loop seam never shows. Speed is set from measured width. */
+
+.qb-ticker {
+  --qb-ticker-fade: min(9%, 64px);
+  position: relative;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent,
+    #000 var(--qb-ticker-fade),
+    #000 calc(100% - var(--qb-ticker-fade)),
+    transparent
+  );
+  mask-image: linear-gradient(
+    90deg,
+    transparent,
+    #000 var(--qb-ticker-fade),
+    #000 calc(100% - var(--qb-ticker-fade)),
+    transparent
+  );
+  animation: qb-ticker-in 0.6s var(--ease-board) both;
+}
+
+.qb-ticker__track {
+  display: flex;
+  width: max-content;
+  animation: qb-ticker-scroll var(--qb-ticker-duration, 40s) linear infinite;
+  will-change: transform;
+}
+
+.qb-ticker__set {
+  display: flex;
+  flex: none;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.qb-ticker__item {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: 36px;
+  padding-inline: 1.125rem;
+  white-space: nowrap;
+}
+/* Faint divider dot between quotes (on every item, so copies tile cleanly). */
+.qb-ticker__item::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 50%;
+  width: 3px;
+  height: 3px;
+  border-radius: 9999px;
+  transform: translate(50%, -50%);
+  background: var(--faint);
+}
+
+.qb-ticker__sym {
+  font-family: var(--font-mono);
+  font-stretch: 87.5%;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+}
+
+.qb-ticker__chg {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-family: var(--font-mono);
+  font-stretch: 87.5%;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Loading placeholder: same height as the tape so the hero doesn't jump. */
+.qb-ticker-skeleton {
+  display: flex;
+  align-items: center;
+  gap: 2.25rem;
+  height: 36px;
+  padding-inline: 1.125rem;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, #000 60%, transparent);
+  mask-image: linear-gradient(90deg, #000 60%, transparent);
+}
+
+@keyframes qb-ticker-scroll {
+  to {
+    transform: translateX(-50%);
+  }
+}
+@keyframes qb-ticker-in {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Hover to read a quote (mouse/trackpad only — touch has no "un-hover"). */
+@media (hover: hover) and (pointer: fine) {
+  .qb-ticker:hover .qb-ticker__track {
+    animation-play-state: paused;
+  }
+}
+
+/* No marquee: one copy, swipe/scroll to read. The strip starts at its first
+   quote, so only the trailing edge fades (a hint that there's more). */
+@media (prefers-reduced-motion: reduce) {
+  .qb-ticker {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    animation: none;
+    -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - var(--qb-ticker-fade)), transparent);
+    mask-image: linear-gradient(90deg, #000 calc(100% - var(--qb-ticker-fade)), transparent);
+  }
+  .qb-ticker__track {
+    animation: none;
+  }
+  .qb-ticker__set + .qb-ticker__set {
+    display: none;
+  }
+}

@@ -1,10 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { RichText } from "../RichText";
-import { useSound } from "../SoundContext";
-import { celebrate } from "../confetti";
+import { RichText } from "@/app/RichText";
+import { useSound } from "@/app/SoundContext";
+import { celebrate } from "@/app/confetti";
+import { ThinkingDots, TypingCaret } from "@/app/ui/Ai";
+import { Button } from "@/app/ui/Button";
+import { Card } from "@/app/ui/Card";
+import { Chip } from "@/app/ui/Chip";
+import { SectionHeader } from "@/app/ui/SectionHeader";
+import { cx } from "@/app/ui/cx";
+import { IconRefresh, IconSparkle } from "@/app/ui/icons";
 
 type RoastHolding = {
   symbol: string;
@@ -22,6 +29,23 @@ type RoastInvestor = {
 
 type Mode = "roast" | "hype";
 
+// The speech bubble takes the color of the key that was pressed, and its
+// tail points back up at that key (roast = left, hype = right).
+const BUBBLE: Record<Mode, { fill: string; accent: string; tail: string; label: string }> = {
+  roast: {
+    fill: "bg-amber-soft",
+    accent: "text-amber",
+    tail: "left-1/4",
+    label: "🔥 The roast",
+  },
+  hype: {
+    fill: "bg-gain-soft",
+    accent: "text-gain",
+    tail: "left-3/4",
+    label: "🎉 The hype",
+  },
+};
+
 /**
  * One-tap Claude that roasts or hypes a real portfolio in three punchy lines,
  * revealed with a live typewriter + key-tick sound (hype ends in confetti). The
@@ -36,6 +60,7 @@ export function RoastHype({ investor }: { investor: RoastInvestor }) {
   const finished = useRef(false);
   // Increments per tap so "Again" always gets a fresh generation, not the cache.
   const runCount = useRef(0);
+  const headingId = useId();
 
   // Typewriter reveal (matches the Portfolio Assistant's feel: 25ms/step, a
   // soft key tick every ~12 chars).
@@ -107,121 +132,118 @@ export function RoastHype({ investor }: { investor: RoastInvestor }) {
   const firstName = investor.name.trim().split(/\s+/)[0] || investor.name;
   const typingDone = !!text && shown >= text.length;
   // Accent everything (thinking dots, caret) to the active mode so hype reads
-  // emerald and roast reads orange — consistent with the result bubble's tint.
-  const accent = mode === "hype" ? "bg-emerald-300/90" : "bg-orange-300/90";
+  // green and roast reads amber — consistent with the result bubble's tint.
+  const bubble = BUBBLE[mode ?? "roast"];
+  // The keys sit side by side, so the name only rides along when the card is
+  // wide enough for it (a longer name needs a wider card).
+  const nameClass =
+    firstName.length > 7
+      ? "@max-[27rem]:hidden"
+      : firstName.length > 6
+        ? "@max-[20.25rem]:hidden"
+        : "@max-[19.5rem]:hidden";
 
   return (
-    // Outer wrapper carries the NEW badge so it can sit on the border; the
-    // decorative glow clips inside its own inset wrapper, so the card itself
-    // stays overflow-visible and never clips the badge.
-    <div className="relative">
-      <span className="absolute -top-2 right-5 z-20 inline-flex items-center rounded-full bg-linear-to-r from-rose-500 to-orange-500 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-white shadow-md shadow-rose-500/40 ring-1 ring-white/20">
-        New
-      </span>
-      <section className="glass relative rounded-3xl border-orange-400/15 p-5 shadow-2xl shadow-orange-500/10 sm:p-6">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 overflow-hidden rounded-[inherit]"
-        >
-          <div className="absolute -right-16 -top-16 h-44 w-44 rounded-full bg-orange-500/15 blur-3xl" />
-        </div>
-      <div className="relative flex items-center gap-3">
-        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-2xl bg-linear-to-br from-orange-400 via-rose-500 to-fuchsia-500 text-lg shadow-lg shadow-black/30">
-          🎤
-        </span>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
-            <h2 className="text-lg font-semibold leading-tight text-white">
-              Roast or Hype
-            </h2>
-            <span className="inline-flex items-center gap-1 rounded-full bg-orange-500/15 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-orange-200 ring-1 ring-orange-400/30">
-              ✨ AI-powered
-            </span>
-          </div>
-          <p className="mt-1.5 text-[11px] leading-relaxed text-slate-400">
-            Let the AI roast or hype {firstName}&apos;s portfolio — then share it
-          </p>
-        </div>
-      </div>
+    <Card as="section" aria-labelledby={headingId}>
+      <div className="@container">
+        <SectionHeader
+          id={headingId}
+          emoji="🎤"
+          title="Roast or hype"
+          sub={<>Let the AI roast or hype {firstName}&apos;s portfolio — then share it</>}
+          meta={
+            <Chip size="xs" tone="amber" icon={<IconSparkle />}>
+              AI
+            </Chip>
+          }
+        />
 
-      <div className="relative mt-3.5 flex gap-2">
-        <motion.button
-          type="button"
-          onClick={() => run("roast")}
-          disabled={loading}
-          whileTap={{ scale: 0.96 }}
-          className="flex-1 cursor-pointer rounded-lg bg-linear-to-r from-orange-500 to-rose-500 px-3 py-1.5 text-xs font-semibold text-white shadow-md shadow-rose-500/20 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          🔥 Roast {firstName}
-        </motion.button>
-        <motion.button
-          type="button"
-          onClick={() => run("hype")}
-          disabled={loading}
-          whileTap={{ scale: 0.96 }}
-          className="flex-1 cursor-pointer rounded-lg bg-linear-to-r from-emerald-500 to-cyan-500 px-3 py-1.5 text-xs font-semibold text-white shadow-md shadow-cyan-500/20 transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          🎉 Hype {firstName}
-        </motion.button>
-      </div>
-
-      <AnimatePresence>
-        {(loading || text) && (
-          <motion.div
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            className={`relative mt-4 rounded-2xl px-4 py-3 ring-1 ${
-              mode === "hype"
-                ? "bg-emerald-500/8 ring-emerald-400/20"
-                : "bg-orange-500/8 ring-orange-400/20"
-            }`}
+        {/* The two-sided switch: one key per side, an "or" coin on the seam.
+            The name drops off the keys when the card is too narrow for it. */}
+        <div className="relative grid grid-cols-2 gap-3 pb-1">
+          <Button
+            variant="danger"
+            size="lg"
+            fullWidth
+            className="gap-1.5! px-2! @max-[22rem]:text-[15px]"
+            loading={loading && mode === "roast"}
+            disabled={loading && mode !== "roast"}
+            aria-label={`Roast ${firstName}`}
+            onClick={() => run("roast")}
           >
-            {loading && !text ? (
-              <div className="flex items-center gap-1.5">
-                <span className="sr-only">Thinking…</span>
-                {[0, 1, 2].map((n) => (
-                  <motion.span
-                    key={n}
-                    aria-hidden
-                    className={`h-1.5 w-1.5 rounded-full ${accent}`}
-                    animate={{ y: [0, -4, 0], opacity: [0.4, 1, 0.4] }}
-                    transition={{
-                      duration: 0.9,
-                      repeat: Infinity,
-                      delay: n * 0.15,
-                      ease: "easeInOut",
-                    }}
-                  />
-                ))}
-              </div>
-            ) : (
-              <>
-                <p className="text-sm leading-6 text-slate-100">
-                  <RichText text={text.slice(0, shown)} />
-                  {!typingDone && (
-                    <span
-                      className={`ml-0.5 inline-block h-3.5 w-0.5 translate-y-0.5 animate-pulse align-middle ${accent}`}
-                    />
-                  )}
-                </p>
-                {typingDone && (
-                  <div className="mt-3 flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => run(mode ?? "roast")}
-                      className="cursor-pointer rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-medium text-slate-200 transition hover:border-white/25 hover:text-white"
-                    >
-                      Again
-                    </button>
-                  </div>
+            <span aria-hidden>🔥</span>
+            <span>
+              Roast<span className={nameClass}> {firstName}</span>
+            </span>
+          </Button>
+          <Button
+            variant="gain"
+            size="lg"
+            fullWidth
+            className="gap-1.5! px-2! @max-[22rem]:text-[15px]"
+            loading={loading && mode === "hype"}
+            disabled={loading && mode !== "hype"}
+            aria-label={`Hype ${firstName}`}
+            onClick={() => run("hype")}
+          >
+            <span aria-hidden>🎉</span>
+            <span>
+              Hype<span className={nameClass}> {firstName}</span>
+            </span>
+          </Button>
+          <span
+            aria-hidden
+            className="type-label pointer-events-none absolute top-7 left-1/2 z-10 grid size-7 -translate-1/2 place-items-center rounded-full border-2 border-line-strong bg-surface text-[12px] leading-none font-bold text-ink shadow-lip"
+          >
+            or
+          </span>
+        </div>
+
+        <AnimatePresence>
+          {(loading || text) && (
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className={cx("relative mt-5 rounded-[20px] px-4 py-3.5", bubble.fill)}
+            >
+              <span
+                aria-hidden
+                className={cx(
+                  "absolute bottom-full h-2.5 w-5 -translate-x-1/2 [clip-path:polygon(50%_0,100%_100%,0_100%)]",
+                  bubble.fill,
+                  bubble.tail,
                 )}
-              </>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
-      </section>
-    </div>
+              />
+              {loading && !text ? (
+                <div className="flex h-7 items-center">
+                  <ThinkingDots className={bubble.accent} />
+                </div>
+              ) : (
+                <>
+                  <p className={cx("type-label mb-1", bubble.accent)}>{bubble.label}</p>
+                  <p className="text-base leading-7 wrap-anywhere text-ink">
+                    <RichText text={text.slice(0, shown)} />
+                    {!typingDone && <TypingCaret className={bubble.accent} />}
+                  </p>
+                  {typingDone && (
+                    <div className="mt-3 flex items-center gap-2 pb-1">
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        icon={<IconRefresh />}
+                        onClick={() => run(mode ?? "roast")}
+                      >
+                        Again
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </Card>
   );
 }

@@ -1,0 +1,210 @@
+/* Sparkline (app/Sparkline.tsx) + ChartLegend. Colors are semantic tokens, so
+   the same chart re-points to board values inside `.on-board`.
+
+   Re-declaring Tailwind's layer order keeps `components` above preflight even
+   if this file happens to load before globals.css. */
+@layer theme, base, components, utilities;
+
+@keyframes spark-chart-draw {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes spark-chart-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@layer components {
+  .spark-chart {
+    --spark-c: var(--gain);
+  }
+  .spark-chart[data-tone="loss"] {
+    --spark-c: var(--loss);
+  }
+
+  .spark-chart__plot {
+    position: relative;
+    min-width: 0;
+  }
+
+  .spark-chart__svg {
+    display: block;
+    width: 100%;
+  }
+  /* Gridlines + "now" divider sit behind the data and never re-animate. */
+  .spark-chart__frame {
+    position: absolute;
+    inset: 0;
+    height: 100%;
+  }
+
+  .spark-chart__grid {
+    stroke: var(--line);
+    stroke-width: 1;
+  }
+  .spark-chart__now {
+    stroke: var(--line-strong);
+    stroke-width: 1;
+    stroke-dasharray: 2 3;
+  }
+
+  .spark-chart__stop {
+    stop-color: var(--spark-c);
+  }
+  .spark-chart__line {
+    fill: none;
+    stroke: var(--spark-c);
+  }
+  .spark-chart__bench {
+    fill: none;
+    stroke: var(--muted);
+    stroke-width: 1.25;
+    stroke-dasharray: 3 3;
+  }
+  .spark-chart__forecast {
+    fill: none;
+    stroke: var(--amber);
+    stroke-dasharray: 4 3;
+  }
+
+  /* Draw-in: the clip is on the (HTML-level) svg box, which stays exact with
+     non-scaling strokes and the stretched viewBox. Re-runs on new data
+     because the svg is keyed by its series. */
+  .spark-chart__data {
+    animation: spark-chart-draw 900ms var(--ease-board) backwards;
+    /* Sparkline's `delay` prop; `backwards` keeps the line hidden until then. */
+    animation-delay: var(--spark-delay, 0ms);
+  }
+  .spark-chart__area {
+    animation: spark-chart-fade 600ms ease-out backwards;
+    animation-delay: calc(var(--spark-delay, 0ms) + 380ms);
+  }
+
+  /* The tip pulse: a surface-colored core ringed by the line color, so it
+     reads on white cards and on the dark board alike. */
+  .spark-chart__pulse {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 8px;
+    height: 8px;
+    margin: -4px 0 0 -4px;
+    border-radius: 9999px;
+    background: var(--surface);
+    box-shadow:
+      0 0 0 2px var(--spark-c),
+      0 0 10px 3px color-mix(in oklab, var(--spark-c) 45%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    will-change: left, top, opacity;
+  }
+
+  /* Axes: y labels in their own column so the date row lines up with the
+     plot without magic offsets. */
+  .spark-axes {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    column-gap: 8px;
+    row-gap: 6px;
+  }
+  .spark-axes--fill {
+    flex: 1 1 0%;
+    min-height: 0;
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .spark-axes__y {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: flex-end;
+  }
+  .spark-axes__x {
+    grid-column: 2;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .spark-axes__label {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-stretch: 87.5%;
+    font-weight: 500;
+    line-height: 1;
+    letter-spacing: 0.02em;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: var(--muted);
+  }
+  .spark-axes__x .spark-axes__label {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+
+  /* ChartLegend */
+  .chart-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 16px;
+    row-gap: 6px;
+  }
+  .chart-legend__item {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  .chart-legend__key {
+    --key-c: var(--muted);
+    flex: none;
+    width: 18px;
+    height: 2px;
+    border-radius: 9999px;
+    background: var(--key-c);
+  }
+  .chart-legend__key[data-kind="dashed"] {
+    border-radius: 0;
+    background: repeating-linear-gradient(
+      90deg,
+      var(--key-c) 0 4px,
+      transparent 4px 7px
+    );
+  }
+  /* Hall labels are sentence case (DESIGN: no tiny mono caps in the hall);
+     on the board the legend speaks the board's mono. */
+  .chart-legend__label {
+    font-family: var(--font-sans);
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.3;
+    color: var(--muted);
+  }
+  .on-board .chart-legend__label {
+    font-family: var(--font-mono);
+    font-stretch: 87.5%;
+    font-size: 11px;
+    font-weight: 500;
+    line-height: 1.4;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+  }
+  .chart-legend__key[data-tone="gain"] { --key-c: var(--gain); }
+  .chart-legend__key[data-tone="loss"] { --key-c: var(--loss); }
+  .chart-legend__key[data-tone="amber"] { --key-c: var(--amber); }
+
+  @media (prefers-reduced-motion: reduce) {
+    .spark-chart__data,
+    .spark-chart__area {
+      animation: none;
+    }
+  }
+}
