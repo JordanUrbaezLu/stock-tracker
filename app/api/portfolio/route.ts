@@ -54,7 +54,10 @@ type InvestorFile = {
     name: string;
     originalAmountInvested?: number;
     allocations: Array<
-      AllocationRaw & { symbol: string; sold?: SoldSeed }
+      // dbIndex: the row's position in the stored array, kept so admin edits
+      // that fall back to allocationIndex still hit the right row even if a
+      // symbol-less row was skipped while loading.
+      AllocationRaw & { symbol: string; sold?: SoldSeed; dbIndex?: number }
     >;
   }>;
 };
@@ -104,6 +107,9 @@ type HoldingValue = {
   realizedChangePercent?: number | null;
 };
 
+/** A dated cash amount; `time` is epoch seconds of the UTC day (00:00Z). */
+type CashFlow = { time: number; amount: number };
+
 type InvestorValue = {
   name: string;
   slug: string;
@@ -115,12 +121,22 @@ type InvestorValue = {
   // Today's aggregate move across open holdings (current vs previous close).
   dayChange: number;
   dayChangePercent: number;
-  // Alpha League: return vs the S&P 500 (SPY) since this investor's inception.
-  spyReturn: number | null; // SPY's % return over the same window
+  // When external cash came in (see inferContributions): one entry per UTC
+  // day, sorted, summing to originalAmountInvested.
+  contributions: CashFlow[];
+  // Sale proceeds not yet reinvested: contributed + Σ sale proceeds − Σ
+  // purchases, in cents (= currentValue − open market value). Below −$1 means
+  // originalAmountInvested is stale (new cash added without bumping it).
+  uninvestedCash: number;
+  // Alpha League, money-weighted: the same contributions, on the same days,
+  // put into the S&P 500 (SPY) instead.
+  spyReturn: number | null; // that S&P portfolio's % return on contributed
   alphaSpy: number | null; // investor return % minus spyReturn
-  // SPY's path indexed to this portfolio's starting value (for chart overlay).
+  // That S&P portfolio's value over time, on valueHistory's timestamps.
   benchmarkHistory: { time: number; value: number }[];
   holdings: HoldingValue[];
+  // Contributed-so-far + cumulative gains: steps up when new cash arrives and
+  // ends exactly at currentValue.
   valueHistory: { time: number; value: number }[];
 };
 
@@ -193,7 +209,7 @@ async function loadInvestorsFromDb(): Promise<InvestorFile | null> {
         name: inv.name as string,
         originalAmountInvested: normalizeNumber(inv.originalAmountInvested),
         allocations: (inv.allocations ?? [])
-          .map((allocation) => {
+          .map((allocation, dbIndex) => {
             const symbol = allocation?.symbol?.toString().trim();
             if (!symbol) return null;
             const invested = normalizeNumber(
@@ -208,6 +224,10 @@ async function loadInvestorsFromDb(): Promise<InvestorFile | null> {
               shares: shares ?? undefined,
               dateInvested,
               sold,
+              // Pass the stable id through: admin edits resolve rows by id
+              // first (it was being dropped, forcing the index fallback).
+              id: allocation.id ? String(allocation.id) : undefined,
+              dbIndex,
             };
           })
           .filter(Boolean) as InvestorFile["investors"][number]["allocations"],
@@ -279,6 +299,175 @@ function combineSeries(
   });
 }
 
+const DAY_SECONDS = 86_400;
+
+/** Epoch seconds of the UTC day containing `ts`. Dates are stored as ISO
+ *  midnight UTC, so this is the calendar day an event was recorded on. */
+function utcDayStart(ts: number): number {
+  return Math.floor(ts / DAY_SECONDS) * DAY_SECONDS;
+}
+
+function roundCents(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+function toEpochSeconds(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const ms = new Date(value).getTime();
+  return Number.isFinite(ms) ? Math.floor(ms / 1000) : null;
+}
+
+/**
+ * When did external cash actually enter this investor's account?
+ *
+ * Walks purchases and sales in date order, a day's sales before its purchases
+ * (so a same-day sell→rebuy is funded by the sale; a position bought and sold
+ * on the same day is sold after it's bought). Sale proceeds go into a pool;
+ * each purchase draws on the pool first and whatever the pool can't cover is
+ * new cash on that purchase's day. Rounding dust (under $1) is not a cash
+ * flow: a pool down to cents doesn't fund later buys, and a rebuy a few cents
+ * over its proceeds isn't a deposit.
+ *
+ * The residual between `contributed` and the inferred new cash (that dust,
+ * cash that was never invested) dates from inception. A material shortfall
+ * instead (inferred new cash exceeding what was contributed by more than $1:
+ * a stale override, or a rebuy dated before the sale that funded it), or any
+ * shortfall when nothing new arrived at inception, trims the newest deposits
+ * first, so the timeline never shows money that was never contributed and no
+ * deposit is negative (given contributed ≥ 0).
+ *
+ * Returns one entry per UTC day, sorted, summing to `contributed` (to the
+ * cent). Mirrored in scripts/db-status.mjs — keep the two in sync.
+ */
+function inferContributions(
+  holdings: HoldingValue[],
+  contributed: number,
+  nowTs: number,
+): CashFlow[] {
+  // Money can't arrive in the future: clamp mis-dated events to today so the
+  // timeline is complete by the last point of the value series.
+  const today = utcDayStart(nowTs);
+  const dayOf = (ts: number) => Math.min(utcDayStart(ts), today);
+
+  type Event = { day: number; order: number; ts: number; amount: number };
+  const SALE = 0;
+  const PURCHASE = 1;
+  const SAME_DAY_SALE = 2; // sold the day it was bought
+  const events: Event[] = [];
+  for (const holding of holdings) {
+    const boughtTs = toEpochSeconds(holding.dateInvested) ?? nowTs;
+    events.push({
+      day: dayOf(boughtTs),
+      order: PURCHASE,
+      ts: boughtTs,
+      amount: Math.max(0, holding.amountInvested),
+    });
+    if (
+      holding.status === "closed" &&
+      holding.proceeds != null &&
+      holding.proceeds > 0
+    ) {
+      const soldTs = toEpochSeconds(holding.soldDate) ?? nowTs;
+      const day = dayOf(soldTs);
+      events.push({
+        day,
+        order: day === dayOf(boughtTs) ? SAME_DAY_SALE : SALE,
+        ts: soldTs,
+        amount: holding.proceeds,
+      });
+    }
+  }
+  events.sort((a, b) => a.day - b.day || a.order - b.order || a.ts - b.ts);
+
+  const purchaseDays = events
+    .filter((e) => e.order === PURCHASE)
+    .map((e) => e.day);
+  const inceptionDay = purchaseDays.length ? Math.min(...purchaseDays) : today;
+
+  const DUST = 1; // the ±$1 rounding tolerance of the money reconciliation
+  let pool = 0;
+  const newCashByDay = new Map<number, number>();
+  for (const event of events) {
+    if (event.order !== PURCHASE) {
+      pool += event.amount;
+      continue;
+    }
+    const fromPool = pool >= DUST ? Math.min(pool, event.amount) : 0;
+    pool -= fromPool;
+    const newCash = event.amount - fromPool;
+    if (newCash >= DUST) {
+      newCashByDay.set(event.day, (newCashByDay.get(event.day) ?? 0) + newCash);
+    }
+  }
+
+  const flows: CashFlow[] = Array.from(newCashByDay, ([time, amount]) => ({
+    time,
+    amount: roundCents(amount),
+  })).sort((a, b) => a.time - b.time);
+
+  let residual =
+    contributed - flows.reduce((sum, flow) => sum + flow.amount, 0);
+  const inception = flows.find((flow) => flow.time === inceptionDay);
+  // Trim newest-first when the shortfall is material, or when there's no
+  // inception deposit to absorb it (the first buy was funded by a sale dated
+  // before it) — otherwise it would surface as a negative "deposit".
+  if (residual < -DUST || (residual < 0 && !inception)) {
+    for (let i = flows.length - 1; i >= 0 && residual < 0; i--) {
+      if (flows[i].time <= inceptionDay) break;
+      const cut = Math.min(flows[i].amount, -residual);
+      flows[i].amount = roundCents(flows[i].amount - cut);
+      residual += cut;
+    }
+  }
+  if (inception) inception.amount = roundCents(inception.amount + residual);
+  else flows.unshift({ time: inceptionDay, amount: roundCents(residual) });
+
+  return flows.filter((flow) => flow.amount !== 0);
+}
+
+/**
+ * Running total of the contributions dated at or before `t`. The last total
+ * is pinned to `contributed` itself, so a value series built on it ends on
+ * exactly the same float as currentValue (no rounding drift).
+ */
+function contributionsUpTo(
+  flows: CashFlow[],
+  contributed: number,
+): (t: number) => number {
+  const totals: number[] = [];
+  let running = 0;
+  for (const flow of flows) {
+    running += flow.amount;
+    totals.push(running);
+  }
+  if (totals.length) totals[totals.length - 1] = contributed;
+  return (t) => {
+    let total = 0;
+    for (let i = 0; i < flows.length && flows[i].time <= t; i++) {
+      total = totals[i];
+    }
+    return total;
+  };
+}
+
+/**
+ * Value at time `t` (SPY priced at `spyAtT`) of the same contributions put
+ * into SPY instead: each deposit buys SPY at its own day's price
+ * (`spyAtFlow[i]`, aligned with `flows`) and grows with it from there.
+ */
+function spyWeightedValue(
+  flows: CashFlow[],
+  spyAtFlow: number[],
+  t: number,
+  spyAtT: number,
+): number {
+  let value = 0;
+  for (let i = 0; i < flows.length && flows[i].time <= t; i++) {
+    value += flows[i].amount * (spyAtT / spyAtFlow[i]);
+  }
+  return value;
+}
+
 export async function GET() {
   if (!alpacaConfigured()) {
     return NextResponse.json(
@@ -338,7 +527,7 @@ export async function GET() {
           shares,
           dateInvested,
           id,
-          allocationIndex: idx,
+          allocationIndex: allocation.dbIndex ?? idx,
           sold,
         };
       })
@@ -472,9 +661,12 @@ export async function GET() {
   });
 
   // Alpha League benchmark: SPY (S&P 500) over the widest window we need —
-  // from the earliest investment to now — so we can price it at each
-  // investor's inception and overlay it on the charts.
-  const benchFrom = Math.min(Math.floor(earliestStartMs / 1000), from);
+  // from the day of the earliest investment to now — so we can price it on
+  // every contribution day and overlay it on the charts.
+  const benchFrom = Math.min(
+    utcDayStart(Math.floor(earliestStartMs / 1000)),
+    from,
+  );
   const [benchBars, benchSnaps] = await Promise.all([
     fetchDailyBars(["SPY"], benchFrom, to),
     fetchSnapshots(["SPY"]),
@@ -484,7 +676,7 @@ export async function GET() {
     benchSnaps.get("SPY")?.price ?? spyBars.at(-1)?.close ?? null;
   // SPY price at-or-after a timestamp, forward-filled to the latest/live price
   // for "today" points (the current day has no daily bar yet). Used to grow
-  // each holding's cost basis by SPY from its own purchase date.
+  // each contribution by SPY from its own day.
   const latestSpy = spyNow ?? spyBars.at(-1)?.close ?? null;
   const spyClose = (t: number): number | null =>
     spyBars.find((b) => b.time >= t)?.close ?? latestSpy;
@@ -722,13 +914,27 @@ export async function GET() {
       ? (dayChange / prevCloseValue) * 100
       : 0;
 
-    // Total value over time = original capital + cumulative per-holding gains.
-    // Each holding contributes (value − its own cost basis) while held; a closed
-    // holding freezes at its realized gain from the sale date to the window end.
-    // Built this way the line stays continuous across a sell→rebuy (the principal
-    // just moves between holdings) and its final point equals currentValue
-    // exactly — including realized profit that the open-positions-only sum
-    // previously dropped, which made the graph end below the headline value.
+    // Cash-flow timeline: when external money actually came in, inferred from
+    // purchases and sales (sale proceeds fund later buys first). Proceeds still
+    // sitting in the account are uninvested cash.
+    const contributions = inferContributions(holdings, originalInvested, to);
+    const saleProceeds = holdings.reduce(
+      (sum, holding) =>
+        sum + (holding.status === "closed" ? (holding.proceeds ?? 0) : 0),
+      0,
+    );
+    const uninvestedCash = roundCents(
+      originalInvested + saleProceeds - totalInvested,
+    );
+    const contributedUpTo = contributionsUpTo(contributions, originalInvested);
+
+    // Total value over time = cash contributed so far + cumulative per-holding
+    // gains. Each holding contributes (value − its own cost basis) while held; a
+    // closed holding freezes at its realized gain from the sale date to the
+    // window end. Built this way the line stays continuous across a sell→rebuy
+    // (the principal just moves between holdings), steps up on the day new cash
+    // arrives (instead of back-dating today's total to day one), and its final
+    // point equals currentValue exactly — including realized profit.
     const gainSeries = holdings
       .filter((h) => h.history.length > 0)
       .map((h) => {
@@ -747,32 +953,44 @@ export async function GET() {
       });
     const valueHistory = combineSeries(gainSeries).map((p) => ({
       time: p.time,
-      value: originalInvested + p.value,
+      value: contributedUpTo(p.time) + p.value,
     }));
 
-    // Alpha vs SPY since this investor's inception, on the same return basis
-    // the cards show (total gain vs original cash contributed).
-    const investorReturnPct = changePercent;
-    const spyReturn = spyReturnSince(investorStartTs);
-    const alphaSpy = spyReturn != null ? investorReturnPct - spyReturn : null;
-    // Benchmark: the investor's original external capital invested in SPY at
-    // inception. Reinvesting (sell A → buy B) is internal, so it never resets or
-    // inflates this line — keeping the dashed overlay consistent with the
-    // "vs S&P since inception" alpha metric above (final point lands exactly
-    // origInvested × (1 + spyReturn)). Original capital is assumed to enter at
-    // inception, matching how investors are seeded; later holdings are funded by
-    // sales, and a brand-new investor's line starts at their own inception so
-    // the group S&P still jumps with the added capital.
-    const spyAtInception = getStartPriceForDate(spyBars, investorStartTs);
-    const benchmarkHistory =
-      spyAtInception && spyAtInception > 0
-        ? valueHistory.map((p) => ({
-            time: p.time,
-            value:
-              originalInvested *
-              ((spyClose(p.time) ?? spyAtInception) / spyAtInception),
-          }))
-        : [];
+    // Fair S&P comparison, "the same money, on the same days": each
+    // contribution buys SPY at its own day's close. Money added later is only
+    // compared against the S&P gains it could actually have earned, so adding
+    // cash never makes anyone look like they're losing to the index. Selling
+    // and reinvesting is internal and never touches this line. The dashed
+    // overlay shares valueHistory's timestamps (the home page sums both
+    // across investors) and its last point is the S&P value behind spyReturn.
+    const spyAtFlow = contributions.map((flow) => spyClose(flow.time));
+    const flowPrices = spyAtFlow.every((p) => p != null && p > 0)
+      ? (spyAtFlow as number[])
+      : null;
+    const benchmarkReady =
+      flowPrices != null && contributions.length > 0 && latestSpy != null;
+    const benchmarkHistory = benchmarkReady
+      ? valueHistory.map((p) => ({
+          time: p.time,
+          value: spyWeightedValue(
+            contributions,
+            flowPrices,
+            p.time,
+            spyClose(p.time) ?? latestSpy,
+          ),
+        }))
+      : [];
+    const benchNow = benchmarkReady
+      ? spyWeightedValue(contributions, flowPrices, to, latestSpy)
+      : null;
+
+    // Alpha vs SPY on the same return basis the cards show (total gain vs cash
+    // contributed): investor return % minus that S&P portfolio's return %.
+    const spyReturn =
+      benchNow != null && originalInvested > 0
+        ? ((benchNow - originalInvested) / originalInvested) * 100
+        : null;
+    const alphaSpy = spyReturn != null ? changePercent - spyReturn : null;
 
     return {
       name: investor.name,
@@ -786,6 +1004,8 @@ export async function GET() {
       changePercent,
       dayChange,
       dayChangePercent,
+      contributions,
+      uninvestedCash,
       spyReturn,
       alphaSpy,
       benchmarkHistory,
