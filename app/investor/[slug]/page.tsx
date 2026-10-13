@@ -1340,7 +1340,7 @@ export default function InvestorDetail() {
                 inputMode="decimal"
                 min="0"
                 step="0.01"
-                placeholder="100"
+                placeholder="50"
                 disabled={saving}
               />
             </Field>
@@ -1357,6 +1357,11 @@ export default function InvestorDetail() {
               />
             </Field>
           </div>
+          {/* The club's bookkeeping convention (see AGENTS.md). */}
+          <p className="-mt-1 text-[13px] leading-snug text-muted">
+            Invested is the order size in whole dollars (like 50). Shares come
+            from the brokerage.
+          </p>
           <Field label="Date invested">
             <Input
               value={formDate}

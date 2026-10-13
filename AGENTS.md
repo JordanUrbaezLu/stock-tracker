@@ -58,11 +58,12 @@ soldAmount?, soldDate?, soldShares? }` (`amount` is a legacy alias for
 - The API passes each allocation's `id` (+ stored index); admin edits resolve
   by id. Known gaps: a future `soldDate` makes the last history point ≠
   currentValue; a partial sale closes the whole holding.
-- **Record the exact fill, not the order size.** The brokerage fills
-  fractional shares to 3 decimals, so a "$50" order spends a little less;
-  `invested` = shares × fill price (the brokerage's Amount), and the total
-  invested moves by that same amount. A round number makes the position start
-  ~1% in the red. Older round-number rows may still carry that small gap.
+- **Buy amounts and total invested are WHOLE DOLLARS — the order size (e.g.
+  $50), not the fill (owner's call, 2026-10-13; exact cents were tried and
+  reverted).** The brokerage fills fractional shares to 3 decimals, so a $50
+  order really spends ~$49.4–49.8 and the position starts up to ~1.3% in the
+  red — accepted. Shares are the brokerage's; sale proceeds stay exact. Two
+  same-sized buys of one fund sharing amount + share count is normal.
 - Symbol validation uses Alpaca's asset registry (Finnhub quotes return c=0
   for ETFs). Bars use `feed=iex`; Finnhub only for logos. Mongo is the only
   data source. Slugs = `slugify(name)`, matched case-insensitively.

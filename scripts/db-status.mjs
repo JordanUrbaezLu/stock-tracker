@@ -227,6 +227,18 @@ for (const inv of doc.investors) {
       `${inv.name}: contributed is the auto-sum, but ${sold.length} position(s) were sold for ${usd(soldProceeds)} — any proceeds reinvested are counted twice; set "total invested" to the real cash put in`,
     );
 
+  // Convention: buy amounts and "total invested" are whole dollars (the order
+  // size, e.g. $50 — not the fill's cents). Sale proceeds stay exact.
+  const withCents = allocs.filter((a) => a.invested > 0 && !Number.isInteger(a.invested));
+  if (withCents.length)
+    warnings.push(
+      `${inv.name}: ${withCents.length} buy amount(s) carry cents (${withCents
+        .map((a) => `${a.symbol} ${dayKey(a.dateInvested) ?? "?"}`)
+        .join(", ")}) — buys are recorded in whole dollars`,
+    );
+  if (override != null && !Number.isInteger(override))
+    warnings.push(`${inv.name}: total invested (${override}) carries cents — it is recorded in whole dollars`);
+
   // Implied buy price (invested / shares) vs that day's close — the next
   // trading day's for weekends/holidays. null when it can't be checked.
   const buyPrice = (a) => {
@@ -252,18 +264,14 @@ for (const inv of doc.investors) {
     const days = [...new Set(group.map((a) => dayKey(a.dateInvested) ?? "?"))].sort();
     if (days.length < 2) continue;
     const [sym, shares] = key.split("|");
-    const sameInvested = new Set(group.map((a) => a.invested)).size === 1;
-    // The brokerage fills fractional shares to 3 decimals, so two similar-sized
-    // buys of one fund often land on the same share count — that alone is not
-    // suspicious. Warn only with corroboration: the amounts are identical too
-    // (duplicate entry, or a nominal amount typed instead of the fill), or one
-    // buy's implied price sits noticeably off that day's close (pasted shares).
+    // Buys are recorded as whole-dollar order sizes and the brokerage fills
+    // fractional shares to 3 decimals, so two same-sized buys of one fund
+    // normally share both the amount and the share count. Warn only when a
+    // buy's implied price sits clearly off that day's close (pasted shares):
+    // the order-size convention alone puts it up to ~1.5% high.
     const checks = group.map((a) => ({ a, check: buyPrice(a) }));
-    const SHARES_TOLERANCE = 0.025;
-    const priceOff = checks.some(
-      ({ check }) => check && Math.abs(check.off) > SHARES_TOLERANCE,
-    );
-    if (!sameInvested && !priceOff) continue;
+    const SHARES_TOLERANCE = 0.035;
+    if (!checks.some(({ check }) => check && Math.abs(check.off) > SHARES_TOLERANCE)) continue;
     const offs = checks
       .map(({ a, check }) => {
         if (!check) return `${dayKey(a.dateInvested) ?? "?"} n/a`;
@@ -271,7 +279,7 @@ for (const inv of doc.investors) {
       })
       .join(", ");
     warnings.push(
-      `${inv.name} ${sym}: buys on ${days.join(", ")} have identical shares (${shares})${sameInvested ? " and invested" : ""} — copy-pasted shares${sameInvested ? " or a duplicate entry" : ""}? (implied price vs that day's close: ${offs})`,
+      `${inv.name} ${sym}: buys on ${days.join(", ")} have identical shares (${shares}) and one is priced off its day — copy-pasted shares? (implied price vs that day's close: ${offs})`,
     );
   }
 
